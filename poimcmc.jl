@@ -1,4 +1,8 @@
-using Random
+using Random,CSV,DataFrames
+VecVw = Union{Vector{Float64},
+	      SubArray{Float64, 1, Matrix{Float64}, Tuple{Base.Slice{Base.OneTo{Int64}}, Int64}, true}
+	      };
+
 # data
 """
 Return dictionary with default parameter values
@@ -7,6 +11,7 @@ function data()
 	prm = Dict{Symbol,Vector{Float64}}();
 	
 	# max permitted number of infected people in building
+	#  Should be at or more than 40 bc of Fall Iso using 40
 	prm[:nmax] = [100.0];
 
 	# number of infected people in the building
@@ -65,7 +70,6 @@ function wrtprm()
 		       
 	return prm,vkeys,ptr,V
 end
-
 function writeprm!(prm::Dict{Symbol,Vector{Float64}},vkeys::Vector{Symbol},
                    V::VecVw,ptr::Dict{Symbol,Vector{Int64}})
 
@@ -74,6 +78,27 @@ function writeprm!(prm::Dict{Symbol,Vector{Float64}},vkeys::Vector{Symbol},
 	end
 	
 end
+function writeprm!(prm1::Dict{Symbol,Vector{Float64}},
+		   prm2::Dict{Symbol,Vector{Float64}})
+	for key in keys(prm1)
+		prm2[key][:] = prm1[key];
+	end
+end
+
+# rdprm
+"""
+Read a column vector formatted like writeprm into a dictionary for 
+restarting runs
+"""
+function rdprm(V::Vector{Float64},vkeys::Vector{Symbol},ptr::Dict{Symbol,Vector{Int64}})
+	prm=Dict{Symbol,Vector{Float64}}();
+	for key in vkeys
+		prm[key] = V[ptr[key][1]:ptr[key][2]];
+	end
+
+	return prm,vkeys
+end
+
 # mcmcrg
 """
 Return dictionaries with bounding intervals for parameters and bools to 
@@ -181,13 +206,18 @@ function logπ!(prm::Dict{Symbol,Vector{Float64}},
 	for i=1:floor(prm[:n][1])
 		val += prm[:p][i]*λval[i];
 	end
-
-	val = -val + prm[:Y][1]*log(val);
-
-	# Prior calibrated from fall isolation data
-	# Lorem Ipsum
+	val = -val + prm[:Y][1]*log(val);	
 	
+	# Prior calibrated from fall isolation data
+	#  Oct: 40 ppl at 172 copies/mg dust
+	#  Nov: 40 ppl at 283 copies/mg dust
+	val2 = 0.0;
+	for i=1:40
+		val2 += prm[:p][i]*λval[i];
+	end
+	val2 = -val2 + 172*log(val2);
 
+	val += val2;
 	
 	return val
 end
@@ -215,12 +245,12 @@ function logρ!(prm::Dict{Symbol,Vector{Float64}},
         if flagλval
                 shedλ!(prm;λval=λval);
 	end
-        for i=1:floor(prm[:n][1])
+	for i=1:Int64(floor(prm[:n][1]))
 		val += prm[:p][i]*λval[i];
 	end
 	
 	valexp = 1.0;
-	for i=1:floor(prm[:Y][1])
+	for i=1:Int64(floor(prm[:Y][1]))
 		valexp *= val/i;
 	end
 
@@ -371,19 +401,21 @@ function mcmcsmp(nsmp::Int64;
 	SMP = Matrix{Float64}(undef,length(V),nsmp);
 
 	# run mcmc
-	prg = 0.0; Δprg = 0.02;
+	pos = 0.0; Δprg = 0.02; nMH = 0; nGibbs = 0;
 	for i=1:nsmp
 		if rand(rng) < MHmix
 			# Global Metropolis-Hastings
+			nMH += 1;
 			#  glbl propose
 			acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng);
 
 			#  mh accept-reject
 			if log(rand(rng)) < logmh(prm0,prm,prmrg,prmvary;λval=λval)
-				prm0 = deepcopy(prm);
+				writeprm!(prm,prm0);
 			end
 		else
 			# Metropolis-within-Gibbs by mixture of glbl prp and rw
+			nGibbs += 1;
 			for key in vkeys
 				if rand(rng) >= MGrw
 					# glbl propose
@@ -391,7 +423,7 @@ function mcmcsmp(nsmp::Int64;
 
 					# mh accept-reject
 					if log(rand(rng)) < logmh(prm0,prm,prmrg,prmvary;λval=λval)
-						prm0 = deepcopy(prm);
+						writeprm!(prm,prm0);
 					end
 				else
 					# rw
@@ -400,7 +432,7 @@ function mcmcsmp(nsmp::Int64;
 					# mh accept-reject
 					if log(rand(rng)) < logmh(prm0,prm,prmrg,prmvary;
 								  λval=λval,flagcase=:rw)
-						prm0 = deepcopy(prm);
+						writeprm!(prm,prm0);
 					end
 				end
 			end
@@ -411,4 +443,18 @@ function mcmcsmp(nsmp::Int64;
 		writeprm!(prm0,vkeys,P0,ptr);
 
 		# Save partial progress
+		prg = i/nsmp;
+		if prg >= pos + Δprg
+			pos = floor(myprg/δprgbar)*Δprg;
+			CSV.write("GibbsMCMC.csv", DataFrame(SMP[:,1:i]), writeheader=false);
+			mysaverng(rng);
+			println("$pos" *"/1 complete with MCMC samples ...")
+		end
+	end
+
+	# Save chain parameter values to csv
+	println("Number of MH samples: $nMH");
+	println("Number of Gibbs samples: $nGibbs");
+	CSV.write("GibbsMCMC.csv", DataFrame(SMP), writeheader=false);
+	mysaverng(rng);
 end
