@@ -34,7 +34,7 @@ function data()
 	prm[:T] = [7.0];
 
 	# dust measurement copies/mg dust
-	prm[:Y] = [175.0];
+	prm[:Y] = [5.0];
 
 	# replicate dust measurements copies/mg dust
 	prm[:M] = [175.0,175.0,175.0];
@@ -56,7 +56,7 @@ function wrtprm()
 	# Create a vector of aprp size with ptr storing positions in vectors
 	nelm = 0; ptr = Dict{Symbol,Vector{Int64}}();
 	for key in vkeys
-	        ptr[key] = [NaN,NaN]; 
+	        ptr[key] = [-1,-1]; 
 	       
 	        ptr[key][1] = nelm+1;
 	        nelm += length(prm[key]);
@@ -70,7 +70,7 @@ function wrtprm()
 		       
 	return prm,vkeys,ptr,V
 end
-function writeprm!(prm::Dict{Symbol,Vector{Float64}},vkeys::Vector{Symbol},
+function wrtprm!(prm::Dict{Symbol,Vector{Float64}},vkeys::Vector{Symbol},
                    V::VecVw,ptr::Dict{Symbol,Vector{Int64}})
 
 	for key in vkeys
@@ -78,7 +78,7 @@ function writeprm!(prm::Dict{Symbol,Vector{Float64}},vkeys::Vector{Symbol},
 	end
 	
 end
-function writeprm!(prm1::Dict{Symbol,Vector{Float64}},
+function wrtprm!(prm1::Dict{Symbol,Vector{Float64}},
 		   prm2::Dict{Symbol,Vector{Float64}})
 	for key in keys(prm1)
 		prm2[key][:] = prm1[key];
@@ -87,7 +87,7 @@ end
 
 # rdprm
 """
-Read a column vector formatted like writeprm into a dictionary for 
+Read a column vector formatted like wrtprm into a dictionary for 
 restarting runs
 """
 function rdprm(V::Vector{Float64},vkeys::Vector{Symbol},ptr::Dict{Symbol,Vector{Int64}})
@@ -114,7 +114,7 @@ function mcmcrg()
 
 	# number of infected people in the building
 	#  bound by nmax enforced in prior
-	prmrg[:n] = [0.0,100.0];
+	prmrg[:n] = [0.0,10.0];
 	prmvary[:n] = true;
 
 	# individual infection times
@@ -131,7 +131,7 @@ function mcmcrg()
 	prmvary[:L] = true;
 
 	# p-survival params
-	prm[:p] = [0.0,1.0];
+	prmrg[:p] = [0.0,1.0];
 	prmvary[:p] = true;
 
 	# Time after time 0 at which dust is collected
@@ -161,7 +161,7 @@ function shedλ(A::Float64,L::Float64,t0::Float64,T::Float64)
 	ram2 = (L/2+t0>=0) ? L^2+4*L*t0+4*t0^2 : 0.0;
 	λval = -A/(2*L)*( ram2 - L^2-2*L*T-4*L*t0-4*t0^2 + 4*ram1 );
 
-	return λval
+	return (λval>0 ? λval : 0.0)
 end
 function shedλ(prm::Dict{Symbol,Vector{Float64}})
 	λval = Vector{Float64}(undef,length(prm[:A]))
@@ -174,7 +174,7 @@ end
 function shedλ!(prm::Dict{Symbol,Vector{Float64}};
 	        λval::Vector{Float64}=Vector{Float64}(undef,length(prm[:A])))
 	for i=1:length(prm[:A])
-		λval[i] = shedλ(prm[:A][i],prm[:L][i],prm[:t][i],prm[:T]);
+		λval[i] = shedλ(prm[:A][i],prm[:L][i],prm[:t][i],prm[:T][1]);
 	end
 end
 
@@ -203,7 +203,7 @@ function logπ!(prm::Dict{Symbol,Vector{Float64}},
 	if flagλval
 		shedλ!(prm;λval=λval);
 	end
-	for i=1:floor(prm[:n][1])
+	for i=1:Int64(floor(prm[:n][1]))
 		val += prm[:p][i]*λval[i];
 	end
 	val = -val + prm[:Y][1]*log(val);	
@@ -411,7 +411,7 @@ function mcmcsmp(nsmp::Int64;
 
 			#  mh accept-reject
 			if log(rand(rng)) < logmh(prm0,prm,prmrg,prmvary;λval=λval)
-				writeprm!(prm,prm0);
+				wrtprm!(prm,prm0);
 			end
 		else
 			# Metropolis-within-Gibbs by mixture of glbl prp and rw
@@ -423,7 +423,7 @@ function mcmcsmp(nsmp::Int64;
 
 					# mh accept-reject
 					if log(rand(rng)) < logmh(prm0,prm,prmrg,prmvary;λval=λval)
-						writeprm!(prm,prm0);
+						wrtprm!(prm,prm0);
 					end
 				else
 					# rw
@@ -432,7 +432,7 @@ function mcmcsmp(nsmp::Int64;
 					# mh accept-reject
 					if log(rand(rng)) < logmh(prm0,prm,prmrg,prmvary;
 								  λval=λval,flagcase=:rw)
-						writeprm!(prm,prm0);
+						wrtprm!(prm,prm0);
 					end
 				end
 			end
@@ -440,7 +440,7 @@ function mcmcsmp(nsmp::Int64;
 
 		# Record the sample
 		P0 = @view SMP[:,i];
-		writeprm!(prm0,vkeys,P0,ptr);
+		wrtprm!(prm0,vkeys,P0,ptr);
 
 		# Save partial progress
 		prg = i/nsmp;
@@ -457,4 +457,6 @@ function mcmcsmp(nsmp::Int64;
 	println("Number of Gibbs samples: $nGibbs");
 	CSV.write("GibbsMCMC.csv", DataFrame(SMP), writeheader=false);
 	mysaverng(rng);
+
+	return SMP
 end
