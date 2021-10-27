@@ -122,7 +122,7 @@ function mcmcrg()
 	prmrg[:t] = [-14.0,0.0];
 	prmvary[:t] = false;
 
-	# λ-params
+	# λ-params # maybe 50% pickup in dorms by vacuum
 	#  shedding amplitude
 	prmrg[:A] = [0.0,1.0];
 	prmvary[:A] = true;
@@ -132,7 +132,7 @@ function mcmcrg()
 	prmvary[:L] = true;
 
 	# p-survival params
-	prmrg[:p] = [0.0,1.0];
+	prmrg[:p] = [0.0,1.0]; # lose an order of magnitude a week
 	prmvary[:p] = true;
 
 	# Time after time 0 at which dust is collected
@@ -140,7 +140,7 @@ function mcmcrg()
 	prmvary[:T] = false;
 
 	# dust measurement copies/mg dust
-	prmrg[:Y] = [0.0,1000.0];
+	prmrg[:Y] = [0.0,1000.0]; # with Delta numbers over 1000 can go up to 10,000
 	prmvary[:Y] = false;
 
 	# replicate measurements copies/mg dust
@@ -227,7 +227,7 @@ end
 """
 Evaluate the log unnormalized proposal density used for global sampling
 Density is prop to
-1/[ (∑pᵢμᵢ-y)^1/2 + 1 ]
+1/[ (∑pᵢμᵢ-y)^2 + 1 ]
 which has absolute bound 1
 """
 function logρ!(prm::Dict{Symbol,Vector{Float64}},
@@ -251,8 +251,7 @@ function logρ!(prm::Dict{Symbol,Vector{Float64}},
 		val += prm[:p][i]*λval[i];
 	end
 	
-	#val = -log( √(abs(val-prm[:Y][1])) + 1 );
-	val = 0.0
+	val = -log( (val-prm[:Y][1])^2 + 1 );	
 
 	return val
 end
