@@ -39,7 +39,8 @@ function data()
 	# replicate dust measurements copies/mg dust
 	prm[:M] = [175.0,175.0,175.0];
 	
-	return prm,keys(prm)
+	vkeys = [k for k in keys(prm)];
+	return prm,vkeys
 end
 
 # wrtprm
@@ -114,7 +115,7 @@ function mcmcrg()
 
 	# number of infected people in the building
 	#  bound by nmax enforced in prior
-	prmrg[:n] = [0.0,10.0];
+	prmrg[:n] = [0.0,100.0];
 	prmvary[:n] = true;
 
 	# individual infection times
@@ -193,7 +194,7 @@ function logπ!(prm::Dict{Symbol,Vector{Float64}},
 	       flagλval::Bool=true)
 	# Bounding box prior
 	for key in keys(prmvary)
-		if prmvary[key]&&( (prm[key][1]<prmrg[key][1])||(prm[key][1]>prmrg[key][2]) )
+		if prmvary[key]&&( sum( (prm[key][:].<prmrg[key][1])+(prm[key][:].>prmrg[key][2]) ) !=0 )
 			return -Inf
 		end
 	end
@@ -226,17 +227,18 @@ end
 """
 Evaluate the log unnormalized proposal density used for global sampling
 Density is prop to
-[(∑pᵢμᵢ)^y/y!]/[1+(∑pᵢμᵢ)+(∑pᵢμᵢ)^y/y!]) 
+1/[ (∑pᵢμᵢ-y)^1/2 + 1 ]
 which has absolute bound 1
 """
 function logρ!(prm::Dict{Symbol,Vector{Float64}},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	       λval::Vector{Float64}=Vector{Float64}(undef,length(prm[:A])),
 	       flagλval::Bool=true)
-        # Bounding box support
+ 
+	# Bounding box support
         for key in keys(prmvary)
-                if prmvary[key]&&( (prm[key][1]<prmrg[key][1])||(prm[key][1]>prmrg[key][2]) )
-                        return -Inf
+		if prmvary[key]&&( sum( (prm[key][:].<prmrg[key][1])+(prm[key][:].>prmrg[key][2]) ) !=0 )
+			return -Inf
 		end
 	end
 
@@ -249,12 +251,8 @@ function logρ!(prm::Dict{Symbol,Vector{Float64}},
 		val += prm[:p][i]*λval[i];
 	end
 	
-	valexp = 1.0;
-	for i=1:Int64(floor(prm[:Y][1]))
-		valexp *= val/i;
-	end
-
-	val = log( valexp/(1+val+valexp) );
+	#val = -log( √(abs(val-prm[:Y][1])) + 1 );
+	val = 0.0
 
 	return val
 end
@@ -341,14 +339,14 @@ function ranw!(prm0::Dict{Symbol,Vector{Float64}},prm::Dict{Symbol,Vector{Float6
 
 	if key!=:ALL
 		nelm = length(prm[key]);
-		prm[key][:] = prmrg[key][1] .+ randn(rng,nelm)*relΔr*(
+		prm[key][:] = prm0[key][:] + randn(rng,nelm)*relΔr*(
 				           prmrg[key][2]-prmrg[key][1]
 				                                     );
 	else
 		for key0 in keys(prmvary)
 			if prmvary[key0]
 				nelm = length(prm[key]);
-				prm[key0][:] = prmrg[key0][1] .+ randn(rng,nelm)*relΔr*(
+				prm[key0][:] = prm0[key0][:] + randn(rng,nelm)*relΔr*(
 					                  prmrg[key0][2]-prmrg[key0][1]
 					                                              );
 			end
@@ -356,11 +354,11 @@ function ranw!(prm0::Dict{Symbol,Vector{Float64}},prm::Dict{Symbol,Vector{Float6
 	end
 end
 
-# logmh
+# logmh!
 """
 Compute the log Metropolis-Hastings acceptance ratio
 """
-function logmh(prm0::Dict{Symbol,Vector{Float64}},prm::Dict{Symbol,Vector{Float64}},
+function logmh!(prm0::Dict{Symbol,Vector{Float64}},prm::Dict{Symbol,Vector{Float64}},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	       flagcase::Symbol=:glbl,
 	       λval::Vector{Float64}=Vector{Float64}(undef,length(prm[:A])))
@@ -410,7 +408,7 @@ function mcmcsmp(nsmp::Int64;
 			acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng);
 
 			#  mh accept-reject
-			if log(rand(rng)) < logmh(prm0,prm,prmrg,prmvary;λval=λval)
+			if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;λval=λval)
 				wrtprm!(prm,prm0);
 			end
 		else
@@ -422,17 +420,21 @@ function mcmcsmp(nsmp::Int64;
 					acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,key=key);
 
 					# mh accept-reject
-					if log(rand(rng)) < logmh(prm0,prm,prmrg,prmvary;λval=λval)
-						wrtprm!(prm,prm0);
+					if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;λval=λval)
+						prm0[key][:] = prm[key];
+					else
+						prm[key][:] = prm0[key];
 					end
-				else
+				else 
 					# rw
 					ranw!(prm0,prm,prmrg,prmvary;key=key);
 
 					# mh accept-reject
-					if log(rand(rng)) < logmh(prm0,prm,prmrg,prmvary;
+					if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;
 								  λval=λval,flagcase=:rw)
-						wrtprm!(prm,prm0);
+						prm0[key][:] = prm[key];
+					else
+						prm[key][:] = prm0[key];
 					end
 				end
 			end
@@ -440,12 +442,12 @@ function mcmcsmp(nsmp::Int64;
 
 		# Record the sample
 		P0 = @view SMP[:,i];
-		wrtprm!(prm0,vkeys,P0,ptr);
+		wrtprm!(prm0,vkeys,P0,ptr); wrtprm!(prm0,prm);
 
 		# Save partial progress
 		prg = i/nsmp;
 		if prg >= pos + Δprg
-			pos = floor(myprg/δprgbar)*Δprg;
+			pos = floor(prg/Δprg)*Δprg;
 			CSV.write("GibbsMCMC.csv", DataFrame(SMP[:,1:i]), writeheader=false);
 			mysaverng(rng);
 			println("$pos" *"/1 complete with MCMC samples ...")
