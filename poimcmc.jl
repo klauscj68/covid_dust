@@ -180,7 +180,7 @@ end
 function shedλ(prm::Dict{Symbol,Vector{Float64}})
 	λval = Vector{Float64}(undef,length(prm[:A]))
 	for i=1:length(prm[:A])
-		λval[i] = shedλ(prm[:A][i],prm[:L][i],prm[:t][i],prm[:T],prm[:Aₓ]);
+		λval[i] = shedλ(prm[:A][i],prm[:L][i],prm[:t][i],prm[:T][1],prm[:Aₓ][i]);
 	end
 
 	return λval
@@ -188,7 +188,7 @@ end
 function shedλ!(prm::Dict{Symbol,Vector{Float64}};
 	        λval::Vector{Float64}=Vector{Float64}(undef,length(prm[:A])))
 	for i=1:length(prm[:A])
-		λval[i] = shedλ(prm[:A][i],prm[:L][i],prm[:t][i],prm[:T][1],prm[:Aₓ]);
+		λval[i] = shedλ(prm[:A][i],prm[:L][i],prm[:t][i],prm[:T][1],prm[:Aₓ][i]);
 	end
 end
 
