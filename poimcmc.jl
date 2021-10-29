@@ -24,6 +24,9 @@ function data()
 	#  shedding amplitude
 	prm[:A] = fill(1.0,Int64(prm[:nmax][1]));
 
+	#  shedding amplitude position
+	prm[:Aₓ] = fill(3.5,Int64(prm[:nmax][1]));
+
 	#  shedding duration
 	prm[:L] = fill(7.0,Int64(prm[:nmax][1]));
 
@@ -41,6 +44,60 @@ function data()
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
+end
+
+# mcmcrg
+"""
+Return dictionaries with bounding intervals for parameters and bools to 
+say which parameters are varied
+"""
+function mcmcrg()
+	prmrg = Dict{Symbol,Vector{Float64}}();
+	prmvary = Dict{Symbol,Bool}();
+	
+	# max permitted number of infected people in building
+	prmrg[:nmax] = [0.0,100.0];
+	prmvary[:nmax] = false;
+
+	# number of infected people in the building
+	#  bound by nmax enforced in prior
+	prmrg[:n] = [0.0,100.0];
+	prmvary[:n] = true;
+
+	# individual infection times
+	prmrg[:t] = [-14.0,0.0];
+	prmvary[:t] = false;
+
+	# λ-params # maybe 50% pickup in dorms by vacuum
+	#  shedding amplitude
+	prmrg[:A] = [0.0,1.0];
+	prmvary[:A] = true;
+
+	#  shedding amplitude position
+	prmrg[:Aₓ] = [0.0,7.0];
+	prmvary[:Aₓ] = true;
+
+	#  shedding duration 
+	prmrg[:L] = [7.0,14.0];
+	prmvary[:L] = true;
+
+	# p-survival params
+	prmrg[:p] = [0.0,1.0]; # lose an order of magnitude a week
+	prmvary[:p] = true;
+
+	# Time after time 0 at which dust is collected
+	prmrg[:T] = [5.0,10.0];
+	prmvary[:T] = false;
+
+	# dust measurement copies/mg dust
+	prmrg[:Y] = [0.0,1000.0]; # with Delta numbers over 1000 can go up to 10,000
+	prmvary[:Y] = false;
+
+	# replicate measurements copies/mg dust
+	prmrg[:M] = [0.0,1000.0];
+	prmvary[:M] = false;
+
+	return prmrg,prmvary
 end
 
 # wrtprm
@@ -100,74 +157,30 @@ function rdprm(V::Vector{Float64},vkeys::Vector{Symbol},ptr::Dict{Symbol,Vector{
 	return prm,vkeys
 end
 
-# mcmcrg
-"""
-Return dictionaries with bounding intervals for parameters and bools to 
-say which parameters are varied
-"""
-function mcmcrg()
-	prmrg = Dict{Symbol,Vector{Float64}}();
-	prmvary = Dict{Symbol,Bool}();
-	
-	# max permitted number of infected people in building
-	prmrg[:nmax] = [0.0,100.0];
-	prmvary[:nmax] = false;
-
-	# number of infected people in the building
-	#  bound by nmax enforced in prior
-	prmrg[:n] = [0.0,100.0];
-	prmvary[:n] = true;
-
-	# individual infection times
-	prmrg[:t] = [-14.0,0.0];
-	prmvary[:t] = false;
-
-	# λ-params # maybe 50% pickup in dorms by vacuum
-	#  shedding amplitude
-	prmrg[:A] = [0.0,1.0];
-	prmvary[:A] = true;
-
-	#  shedding duration 
-	prmrg[:L] = [7.0,14.0];
-	prmvary[:L] = true;
-
-	# p-survival params
-	prmrg[:p] = [0.0,1.0]; # lose an order of magnitude a week
-	prmvary[:p] = true;
-
-	# Time after time 0 at which dust is collected
-	prmrg[:T] = [5.0,10.0];
-	prmvary[:T] = false;
-
-	# dust measurement copies/mg dust
-	prmrg[:Y] = [0.0,1000.0]; # with Delta numbers over 1000 can go up to 10,000
-	prmvary[:Y] = false;
-
-	# replicate measurements copies/mg dust
-	prmrg[:M] = [0.0,1000.0];
-	prmvary[:M] = false;
-
-	return prmrg,prmvary
-end
-
 # shedλ
 """
 Compute the shedding ∫ᵀ₀λ(t-t₀;θ)dt as function of input parameters
 Multiple dispatch for case of single param values and a dictionary.
 Also include a mutating version of the dictionary case for mem alloc
 """
-function shedλ(A::Float64,L::Float64,t0::Float64,T::Float64)
+function shedλ(A::Float64,L::Float64,t0::Float64,T::Float64,Aₓ::Float64)
 	# exported from Maple
-	ram1 = (T<=L/2+t0) ? 0.5*L*T-0.5*T^2+t0*T : -0.5*L*T+0.5*T^2-t0*T+0.25*L^2+L*t0+t0^2;
-	ram2 = (L/2+t0>=0) ? L^2+4*L*t0+4*t0^2 : 0.0;
-	λval = -A/(2*L)*( ram2 - L^2-2*L*T-4*L*t0-4*t0^2 + 4*ram1 );
+	if T<=Aₓ+t0
+		λval = A*T*(T-2*t0)/(2*Aₓ);
+	else
+		λval = A*(Aₓ^2*L-2*Aₓ*T*L+2*t0*L*Aₓ+Aₓ*T^2-2*Aₓ*T*t0+t0^2*L)/(2*Aₓ*(-L+Aₓ));
+	end
 
-	return (λval>0 ? λval : 0.0)
+	if Aₓ+t0<0
+		λval += -A*L*(Aₓ+t0)^2/(2*Aₓ*(-L+Aₓ));
+	end
+
+	return λval
 end
 function shedλ(prm::Dict{Symbol,Vector{Float64}})
 	λval = Vector{Float64}(undef,length(prm[:A]))
 	for i=1:length(prm[:A])
-		λval[i] = shedλ(prm[:A][i],prm[:L][i],prm[:t][i],prm[:T]);
+		λval[i] = shedλ(prm[:A][i],prm[:L][i],prm[:t][i],prm[:T],prm[:Aₓ]);
 	end
 
 	return λval
@@ -175,7 +188,7 @@ end
 function shedλ!(prm::Dict{Symbol,Vector{Float64}};
 	        λval::Vector{Float64}=Vector{Float64}(undef,length(prm[:A])))
 	for i=1:length(prm[:A])
-		λval[i] = shedλ(prm[:A][i],prm[:L][i],prm[:t][i],prm[:T][1]);
+		λval[i] = shedλ(prm[:A][i],prm[:L][i],prm[:t][i],prm[:T][1],prm[:Aₓ]);
 	end
 end
 
@@ -285,7 +298,8 @@ end
 
 # acptrjt!
 """
-Accept-reject propose from the global proposal density
+Accept-reject propose from the global proposal density by uniformly
+sampling the subgraph
 """
 function acptrjt!(prm::Dict{Symbol,Vector{Float64}},
 		  prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
@@ -419,6 +433,8 @@ function mcmcsmp(nsmp::Int64;
 					acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,key=key);
 
 					# mh accept-reject
+					#  the resulting yk value stored to prm0 and prm 
+					#  for next iteration of Gibbs
 					if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;λval=λval)
 						prm0[key][:] = prm[key];
 					else
@@ -429,6 +445,8 @@ function mcmcsmp(nsmp::Int64;
 					ranw!(prm0,prm,prmrg,prmvary;key=key);
 
 					# mh accept-reject
+					#  the resulting yk value stored to prm0 and prm 
+					#  for next iteration of Gibbs
 					if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;
 								  λval=λval,flagcase=:rw)
 						prm0[key][:] = prm[key];
