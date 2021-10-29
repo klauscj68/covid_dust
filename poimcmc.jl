@@ -12,35 +12,47 @@ function data()
 	
 	# max permitted number of infected people in building
 	#  Should be at or more than 40 bc of Fall Iso using 40
-	prm[:nmax] = [100.0];
+	prm[:nmax] = [100.0]; nmax = Int64(prm[:nmax][1]);
 
 	# number of infected people in the building
 	prm[:n] = [10.0];
 
 	# individual infection times
-	prm[:t] = fill(0.0,Int64(prm[:nmax][1]));
+	for i=1:nmax
+		sym = Symbol("t"*string(i));
+		prm[sym] = [0.0];
+	end
 
 	# λ-params
 	#  shedding amplitude
-	prm[:A] = fill(1.0,Int64(prm[:nmax][1]));
+	for i=1:nmax
+		sym = Symbol("A"*string(i));
+		prm[sym] = [1.0];
+	end
 
 	#  shedding amplitude position
-	prm[:Aₓ] = fill(3.5,Int64(prm[:nmax][1]));
+	for i=1:nmax
+		sym = Symbol("Aₓ"*string(i));
+		prm[sym] = [3.5];
+	end
 
 	#  shedding duration
-	prm[:L] = fill(7.0,Int64(prm[:nmax][1]));
+	for i=1:nmax
+		sym = Symbol("L"*string(i));
+		prm[sym] = [7.0];
+	end
 
 	# p-survival params
-	prm[:p] = fill(0.5,Int64(prm[:nmax][1]));
+	for i=1:nmax
+		sym = Symbol("p"*string(i));
+		prm[sym] = [0.5];
+	end
 
 	# Time after time 0 at which dust collected
 	prm[:T] = [7.0];
 
 	# dust measurement copies/mg dust
 	prm[:Y] = [5.0];
-
-	# replicate dust measurements copies/mg dust
-	prm[:M] = [175.0,175.0,175.0];
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
@@ -56,7 +68,8 @@ function mcmcrg()
 	prmvary = Dict{Symbol,Bool}();
 	
 	# max permitted number of infected people in building
-	prmrg[:nmax] = [0.0,100.0];
+	#  nmax should agree with what is in data and not be varied
+	prmrg[:nmax] = [0.0,100.0]; nmax = Int64(prmrg[:nmax][2]);
 	prmvary[:nmax] = false;
 
 	# number of infected people in the building
@@ -65,25 +78,40 @@ function mcmcrg()
 	prmvary[:n] = true;
 
 	# individual infection times
-	prmrg[:t] = [-14.0,0.0];
-	prmvary[:t] = false;
+	for i=1:nmax
+		sym = Symbol("t"*string(i));
+		prmrg[sym] = [-14.0,0.0];
+		prmvary[sym] = false;
+	end
 
 	# λ-params # maybe 50% pickup in dorms by vacuum
 	#  shedding amplitude
-	prmrg[:A] = [0.0,1.0];
-	prmvary[:A] = true;
+	for i=1:nmax
+		sym = Symbol("A"*string(i));
+		prmrg[sym] = [0.0,1.0];
+		prmvary[sym] = true;
+	end
 
 	#  shedding amplitude position
-	prmrg[:Aₓ] = [0.0,7.0];
-	prmvary[:Aₓ] = true;
+	for i=1:nmax
+		sym = Symbol("Aₓ"*string(i));
+		prmrg[sym] = [0.0,7.0];
+		prmvary[sym] = true;
+	end
 
 	#  shedding duration 
-	prmrg[:L] = [7.0,14.0];
-	prmvary[:L] = true;
+	for i=1:nmax
+		sym = Symbol("L"*string(i));
+		prmrg[sym] = [7.0,14.0];
+		prmvary[sym] = true;
+	end
 
 	# p-survival params
-	prmrg[:p] = [0.0,1.0]; # lose an order of magnitude a week
-	prmvary[:p] = true;
+	for i=1:nmax
+		sym = Symbol("p"*string(i));
+		prmrg[sym] = [0.0,1.0]; # lose an order of magnitude a week
+		prmvary[sym] = true;
+	end
 
 	# Time after time 0 at which dust is collected
 	prmrg[:T] = [5.0,10.0];
@@ -92,10 +120,6 @@ function mcmcrg()
 	# dust measurement copies/mg dust
 	prmrg[:Y] = [0.0,1000.0]; # with Delta numbers over 1000 can go up to 10,000
 	prmvary[:Y] = false;
-
-	# replicate measurements copies/mg dust
-	prmrg[:M] = [0.0,1000.0];
-	prmvary[:M] = false;
 
 	return prmrg,prmvary
 end
@@ -178,18 +202,23 @@ function shedλ(A::Float64,L::Float64,t0::Float64,T::Float64,Aₓ::Float64)
 	return λval
 end
 function shedλ(prm::Dict{Symbol,Vector{Float64}})
-	λval = Vector{Float64}(undef,length(prm[:A]))
-	for i=1:length(prm[:A])
-		λval[i] = shedλ(prm[:A][i],prm[:L][i],prm[:t][i],prm[:T][1],prm[:Aₓ][i]);
+	λval = Vector{Float64}(undef,Int64(prm[:nmax][1]));
+	for i=1:Int64(prm[:nmax][1])
+		λval[i] = shedλ(prm[Symbol(:A,i)][1],prm[Symbol(:L,i)][1],
+				prm[Symbol(:t,i)][1],prm[:T][1],
+				prm[Symbol(:Aₓ,i)][1]);
 	end
 
 	return λval
 end
 function shedλ!(prm::Dict{Symbol,Vector{Float64}};
-	        λval::Vector{Float64}=Vector{Float64}(undef,length(prm[:A])))
-	for i=1:length(prm[:A])
-		λval[i] = shedλ(prm[:A][i],prm[:L][i],prm[:t][i],prm[:T][1],prm[:Aₓ][i]);
+		λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])));
+	for i=1:Int64(prm[:nmax][1])
+		λval[i] = shedλ(prm[Symbol(:A,i)][1],prm[Symbol(:L,i)][1],
+				prm[Symbol(:t,i)][1],prm[:T][1],
+				prm[Symbol(:Aₓ,i)][1]);
 	end
+
 end
 
 # logπ!
@@ -203,7 +232,7 @@ flagλval:: Bool saying if λval has already been evaluated for this param
 """
 function logπ!(prm::Dict{Symbol,Vector{Float64}},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
-	       λval::Vector{Float64}=Vector{Float64}(undef,length(prm[:A])),
+	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])),
 	       flagλval::Bool=true)
 	# Bounding box prior
 	for key in keys(prmvary)
@@ -218,7 +247,7 @@ function logπ!(prm::Dict{Symbol,Vector{Float64}},
 		shedλ!(prm;λval=λval);
 	end
 	for i=1:Int64(floor(prm[:n][1]))
-		val += prm[:p][i]*λval[i];
+		val += prm[Symbol(:p,i)][1]*λval[i];
 	end
 	val = -val + prm[:Y][1]*log(val);	
 	
@@ -227,7 +256,7 @@ function logπ!(prm::Dict{Symbol,Vector{Float64}},
 	#  Nov: 40 ppl at 283 copies/mg dust
 	val2 = 0.0;
 	for i=1:40
-		val2 += prm[:p][i]*λval[i];
+		val2 += prm[Symbol(:p,i)][1]*λval[i];
 	end
 	val2 = -val2 + 172*log(val2);
 
@@ -245,7 +274,7 @@ which has absolute bound 1
 """
 function logρ!(prm::Dict{Symbol,Vector{Float64}},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
-	       λval::Vector{Float64}=Vector{Float64}(undef,length(prm[:A])),
+	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])),
 	       flagλval::Bool=true)
  
 	# Bounding box support
@@ -261,7 +290,7 @@ function logρ!(prm::Dict{Symbol,Vector{Float64}},
                 shedλ!(prm;λval=λval);
 	end
 	for i=1:Int64(floor(prm[:n][1]))
-		val += prm[:p][i]*λval[i];
+		val += prm[Symbol(:p,i)][1]*λval[i];
 	end
 	
 	val = -log( (val-prm[:Y][1])^2 + 1 );	
@@ -276,7 +305,7 @@ nonzero
 """
 function init!(prm::Dict{Symbol,Vector{Float64}},
 		  prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool}; 
-		  λval::Vector{Float64}=Vector{Float64}(undef,length(prm[:A])),
+		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])),
 		  rng::MersenneTwister=MersenneTwister())
 	flagfd = false;
 
@@ -303,7 +332,7 @@ sampling the subgraph
 """
 function acptrjt!(prm::Dict{Symbol,Vector{Float64}},
 		  prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
-		  λval::Vector{Float64}=Vector{Float64}(undef,length(prm[:A])),
+		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])),
 		  rng::MersenneTwister=MersenneTwister(),
 		  key::Symbol=:ALL,
 		  uenv::Float64=1.0)
@@ -374,7 +403,7 @@ Compute the log Metropolis-Hastings acceptance ratio
 function logmh!(prm0::Dict{Symbol,Vector{Float64}},prm::Dict{Symbol,Vector{Float64}},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	       flagcase::Symbol=:glbl,
-	       λval::Vector{Float64}=Vector{Float64}(undef,length(prm[:A])))
+	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])))
 	
 	# stationary distribution
 	val  = logπ!(prm,prmrg,prmvary;λval=λval);
@@ -395,11 +424,11 @@ mcmc sample the posterior distribution
 """
 function mcmcsmp(nsmp::Int64;
 		 rng::MersenneTwister=MersenneTwister(),
-		 MHmix::Float64=0.05,MGrw::Float64=0.5,
+		 MHmix::Float64=0.1,MGrw::Float64=0.99,
 		 flagrst::Bool=false)
 	prm,vkeys,ptr,V = wrtprm(); 
 	prmrg,prmvary = mcmcrg();
-	λval = Vector{Float64}(undef,length(prm[:A]));
+	λval = Vector{Float64}(undef,Int64(prm[:nmax][1]));
 	
 	if flagrst
 		# restart sampling from csv
@@ -474,7 +503,7 @@ function mcmcsmp(nsmp::Int64;
 	# Save chain parameter values to csv
 	println("Number of MH samples: $nMH");
 	println("Number of Gibbs samples: $nGibbs");
-	CSV.write("GibbsMCMC.csv", DataFrame(SMP), writeheader=false);
+	CSV.write("GibbsMCMC.csv", [DataFrame(:prm=>vkeys) DataFrame(SMP)], writeheader=false);
 	mysaverng(rng);
 
 	return SMP
