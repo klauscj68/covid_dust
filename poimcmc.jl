@@ -8,51 +8,51 @@ VecVw = Union{Vector{Float64},
 Return dictionary with default parameter values
 """
 function data()
-	prm = Dict{Symbol,Vector{Float64}}();
+	prm = Dict{Symbol,Float64}();
 	
 	# max permitted number of infected people in building
 	#  Should be at or more than 40 bc of Fall Iso using 40
-	prm[:nmax] = [100.0]; nmax = Int64(prm[:nmax][1]);
+	prm[:nmax] = 100.0; nmax = Int64(prm[:nmax]);
 
 	# number of infected people in the building
-	prm[:n] = [10.0];
+	prm[:n] = 10.0;
 
 	# individual infection times
 	for i=1:nmax
 		sym = Symbol("t"*string(i));
-		prm[sym] = [0.0];
+		prm[sym] = 0.0;
 	end
 
 	# λ-params
 	#  shedding amplitude
 	for i=1:nmax
 		sym = Symbol("A"*string(i));
-		prm[sym] = [1.0];
+		prm[sym] = 1.0;
 	end
 
 	#  shedding amplitude position
 	for i=1:nmax
 		sym = Symbol("Aₓ"*string(i));
-		prm[sym] = [3.5];
+		prm[sym] = 3.5;
 	end
 
 	#  shedding duration
 	for i=1:nmax
 		sym = Symbol("L"*string(i));
-		prm[sym] = [7.0];
+		prm[sym] = 7.0;
 	end
 
 	# p-survival params
 	for i=1:nmax
 		sym = Symbol("p"*string(i));
-		prm[sym] = [0.5];
+		prm[sym] = 0.5;
 	end
 
 	# Time after time 0 at which dust collected
-	prm[:T] = [7.0];
+	prm[:T] = 7.0;
 
 	# dust measurement copies/mg dust
-	prm[:Y] = [5.0];
+	prm[:Y] = 5.0;
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
@@ -135,47 +135,40 @@ call with dictionary etc: returns the column vector stored in order of keys(prm)
 function wrtprm()
 	prm,vkeys = data();
 	
-	# Create a vector of aprp size with ptr storing positions in vectors
-	nelm = 0; ptr = Dict{Symbol,Vector{Int64}}();
-	for key in vkeys
-	        ptr[key] = [-1,-1]; 
-	       
-	        ptr[key][1] = nelm+1;
-	        nelm += length(prm[key]);
-	        ptr[key][2] = nelm;
-	end
+	# Create a vector of aprp size
+	nelm = length(vkeys);
 
 	V = Vector{Float64}(undef,nelm);
-	for key in vkeys
-		V[ptr[key][1]:ptr[key][2]] = prm[key];
+	for i=1:nelm
+		V[i] = prm[vkeys[i]];
 	end
 		       
-	return prm,vkeys,ptr,V
+	return prm,vkeys,V
 end
-function wrtprm!(prm::Dict{Symbol,Vector{Float64}},vkeys::Vector{Symbol},
-                   V::VecVw,ptr::Dict{Symbol,Vector{Int64}})
+function wrtprm!(prm::Dict{Symbol,Float64},vkeys::Vector{Symbol},
+                   V::VecVw)
 
-	for key in vkeys
-		V[ptr[key][1]:ptr[key][2]] = prm[key];
+	for i=1:length(vkeys)
+		V[i] = prm[vkeys[i]];
 	end
 	
 end
-function wrtprm!(prm1::Dict{Symbol,Vector{Float64}},
-		   prm2::Dict{Symbol,Vector{Float64}})
+function wrtprm!(prm1::Dict{Symbol,Float64},
+		 prm2::Dict{Symbol,Float64})
 	for key in keys(prm1)
-		prm2[key][:] = prm1[key];
+		prm2[key] = prm1[key];
 	end
 end
 
 # rdprm
 """
 Read a column vector formatted like wrtprm into a dictionary for 
-restarting runs
+restarting runs assuming each parameter has size 1.
 """
-function rdprm(V::Vector{Float64},vkeys::Vector{Symbol},ptr::Dict{Symbol,Vector{Int64}})
-	prm=Dict{Symbol,Vector{Float64}}();
-	for key in vkeys
-		prm[key] = V[ptr[key][1]:ptr[key][2]];
+function rdprm(V::Vector{Float64},vkeys::Vector{Symbol})
+	prm=Dict{Symbol,Float64}();
+	for i=1:length(vkeys)
+		prm[vkeys[i]] = V[i];
 	end
 
 	return prm,vkeys
@@ -201,22 +194,22 @@ function shedλ(A::Float64,L::Float64,t0::Float64,T::Float64,Aₓ::Float64)
 
 	return λval
 end
-function shedλ(prm::Dict{Symbol,Vector{Float64}})
-	λval = Vector{Float64}(undef,Int64(prm[:nmax][1]));
-	for i=1:Int64(prm[:nmax][1])
-		λval[i] = shedλ(prm[Symbol(:A,i)][1],prm[Symbol(:L,i)][1],
-				prm[Symbol(:t,i)][1],prm[:T][1],
-				prm[Symbol(:Aₓ,i)][1]);
+function shedλ(prm::Dict{Symbol,Float64})
+	λval = Vector{Float64}(undef,Int64(prm[:nmax]));
+	for i=1:Int64(prm[:nmax])
+		λval[i] = shedλ(prm[Symbol(:A,i)],prm[Symbol(:L,i)],
+				prm[Symbol(:t,i)],prm[:T],
+				prm[Symbol(:Aₓ,i)]);
 	end
 
 	return λval
 end
-function shedλ!(prm::Dict{Symbol,Vector{Float64}};
-		λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])));
-	for i=1:Int64(prm[:nmax][1])
-		λval[i] = shedλ(prm[Symbol(:A,i)][1],prm[Symbol(:L,i)][1],
-				prm[Symbol(:t,i)][1],prm[:T][1],
-				prm[Symbol(:Aₓ,i)][1]);
+function shedλ!(prm::Dict{Symbol,Float64};
+		λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])));
+	for i=1:Int64(prm[:nmax])
+		λval[i] = shedλ(prm[Symbol(:A,i)],prm[Symbol(:L,i)],
+				prm[Symbol(:t,i)],prm[:T],
+				prm[Symbol(:Aₓ,i)]);
 	end
 
 end
@@ -230,13 +223,13 @@ prmvary:: Dict storing which parameters are varied
 flagλval:: Bool saying if λval has already been evaluated for this param 
            choice or not (to save computation)
 """
-function logπ!(prm::Dict{Symbol,Vector{Float64}},
+function logπ!(prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
-	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])),
+	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
 	       flagλval::Bool=true)
 	# Bounding box prior
 	for key in keys(prmvary)
-		if prmvary[key]&&( sum( (prm[key][:].<prmrg[key][1])+(prm[key][:].>prmrg[key][2]) ) !=0 )
+		if prmvary[key]&&( sum( (prm[key]<prmrg[key][1])+(prm[key]>prmrg[key][2]) ) !=0 )
 			return -Inf
 		end
 	end
@@ -246,17 +239,17 @@ function logπ!(prm::Dict{Symbol,Vector{Float64}},
 	if flagλval
 		shedλ!(prm;λval=λval);
 	end
-	for i=1:Int64(floor(prm[:n][1]))
-		val += prm[Symbol(:p,i)][1]*λval[i];
+	for i=1:Int64(floor(prm[:n]))
+		val += prm[Symbol(:p,i)]*λval[i];
 	end
-	val = -val + prm[:Y][1]*log(val);	
+	val = -val + prm[:Y]*log(val);	
 	
 	# Prior calibrated from fall isolation data
 	#  Oct: 40 ppl at 172 copies/mg dust
 	#  Nov: 40 ppl at 283 copies/mg dust
 	val2 = 0.0;
 	for i=1:40
-		val2 += prm[Symbol(:p,i)][1]*λval[i];
+		val2 += prm[Symbol(:p,i)]*λval[i];
 	end
 	val2 = -val2 + 172*log(val2);
 
@@ -272,14 +265,14 @@ Density is prop to
 1/[ (∑pᵢμᵢ-y)^2 + 1 ]
 which has absolute bound 1
 """
-function logρ!(prm::Dict{Symbol,Vector{Float64}},
+function logρ!(prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])),
 	       flagλval::Bool=true)
  
 	# Bounding box support
         for key in keys(prmvary)
-		if prmvary[key]&&( sum( (prm[key][:].<prmrg[key][1])+(prm[key][:].>prmrg[key][2]) ) !=0 )
+		if prmvary[key]&&( sum( (prm[key]<prmrg[key][1])+(prm[key]>prmrg[key][2]) ) !=0 )
 			return -Inf
 		end
 	end
@@ -289,11 +282,11 @@ function logρ!(prm::Dict{Symbol,Vector{Float64}},
         if flagλval
                 shedλ!(prm;λval=λval);
 	end
-	for i=1:Int64(floor(prm[:n][1]))
-		val += prm[Symbol(:p,i)][1]*λval[i];
+	for i=1:Int64(floor(prm[:n]))
+		val += prm[Symbol(:p,i)]*λval[i];
 	end
 	
-	val = -log( (val-prm[:Y][1])^2 + 1 );	
+	val = -log( (val-prm[:Y])^2 + 1 );	
 
 	return val
 end
@@ -303,17 +296,16 @@ end
 Initialize the mcmc sampler by a uniform draw conditioned on the posterior being
 nonzero
 """
-function init!(prm::Dict{Symbol,Vector{Float64}},
-		  prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool}; 
-		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])),
+function init!(prm::Dict{Symbol,Float64},
+	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool}; 
+		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
 		  rng::MersenneTwister=MersenneTwister())
 	flagfd = false;
 
 	while !flagfd
 		for key in keys(prmvary)
 			if prmvary[key]
-				nelm = length(prm[key]);
-				prm[key][:] = prmrg[key][1] .+ rand(rng,nelm)*(
+				prm[key] = prmrg[key][1] .+ rand(rng)*(
 					           prmrg[key][2]-prmrg[key][1]
 					                                     );
 			end
@@ -330,9 +322,9 @@ end
 Accept-reject propose from the global proposal density by uniformly
 sampling the subgraph
 """
-function acptrjt!(prm::Dict{Symbol,Vector{Float64}},
+function acptrjt!(prm::Dict{Symbol,Float64},
 		  prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
-		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])),
+		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
 		  rng::MersenneTwister=MersenneTwister(),
 		  key::Symbol=:ALL,
 		  uenv::Float64=1.0)
@@ -343,15 +335,13 @@ function acptrjt!(prm::Dict{Symbol,Vector{Float64}},
 	flagfd = false;
 	while !flagfd
 		if key!=:ALL
-			nelm = length(prm[key]);
-			prm[key][:] = prmrg[key][1] .+ rand(rng,nelm)*(
+			prm[key] = prmrg[key][1] .+ rand(rng)*(
 						       prmrg[key][2]-prmrg[key][1]
 						                      );
 		else
 			for key0 in keys(prmvary)
 				if prmvary[key0]
-					nelm = length(prm[key0]);
-					prm[key0][:] = prmrg[key0][1] .+ rand(rng,nelm)*(
+					prm[key0] = prmrg[key0][1] .+ rand(rng)*(
 							     prmrg[key0][2]-prmrg[key0][1]
 							                                );
 				end
@@ -370,7 +360,7 @@ end
 Random walk propose a new sample
  Note: Assumes that prm is a copy of prm0 except in the entries being varied
 """
-function ranw!(prm0::Dict{Symbol,Vector{Float64}},prm::Dict{Symbol,Vector{Float64}},
+function ranw!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	       rng::MersenneTwister=MersenneTwister(),
 	       key::Symbol=:ALL,
@@ -379,16 +369,14 @@ function ranw!(prm0::Dict{Symbol,Vector{Float64}},prm::Dict{Symbol,Vector{Float6
 		return
 	end
 
-	if key!=:ALL
-		nelm = length(prm[key]);
-		prm[key][:] = prm0[key][:] + randn(rng,nelm)*relΔr*(
+	if key!=:ALL	
+		prm[key] = prm0[key] + randn(rng)*relΔr*(
 				           prmrg[key][2]-prmrg[key][1]
 				                                     );
 	else
 		for key0 in keys(prmvary)
 			if prmvary[key0]
-				nelm = length(prm[key]);
-				prm[key0][:] = prm0[key0][:] + randn(rng,nelm)*relΔr*(
+				prm[key0] = prm0[key0] + randn(rng)*relΔr*(
 					                  prmrg[key0][2]-prmrg[key0][1]
 					                                              );
 			end
@@ -400,10 +388,10 @@ end
 """
 Compute the log Metropolis-Hastings acceptance ratio
 """
-function logmh!(prm0::Dict{Symbol,Vector{Float64}},prm::Dict{Symbol,Vector{Float64}},
-	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
-	       flagcase::Symbol=:glbl,
-	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])))
+function logmh!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
+		prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
+	        flagcase::Symbol=:glbl,
+	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])))
 	
 	# stationary distribution
 	val  = logπ!(prm,prmrg,prmvary;λval=λval);
@@ -426,9 +414,9 @@ function mcmcsmp(nsmp::Int64;
 		 rng::MersenneTwister=MersenneTwister(),
 		 MHmix::Float64=0.1,MGrw::Float64=0.99,
 		 flagrst::Bool=false)
-	prm,vkeys,ptr,V = wrtprm(); 
+	prm,vkeys,V = wrtprm(); 
 	prmrg,prmvary = mcmcrg();
-	λval = Vector{Float64}(undef,Int64(prm[:nmax][1]));
+	λval = Vector{Float64}(undef,Int64(prm[:nmax]));
 	
 	if flagrst
 		# restart sampling from csv
@@ -465,9 +453,9 @@ function mcmcsmp(nsmp::Int64;
 					#  the resulting yk value stored to prm0 and prm 
 					#  for next iteration of Gibbs
 					if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;λval=λval)
-						prm0[key][:] = prm[key];
+						prm0[key] = prm[key];
 					else
-						prm[key][:] = prm0[key];
+						prm[key] = prm0[key];
 					end
 				else 
 					# rw
@@ -478,9 +466,9 @@ function mcmcsmp(nsmp::Int64;
 					#  for next iteration of Gibbs
 					if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;
 								  λval=λval,flagcase=:rw)
-						prm0[key][:] = prm[key];
+						prm0[key] = prm[key];
 					else
-						prm[key][:] = prm0[key];
+						prm[key] = prm0[key];
 					end
 				end
 			end
@@ -488,7 +476,7 @@ function mcmcsmp(nsmp::Int64;
 
 		# Record the sample
 		P0 = @view SMP[:,i];
-		wrtprm!(prm0,vkeys,P0,ptr); wrtprm!(prm0,prm);
+		wrtprm!(prm0,vkeys,P0); wrtprm!(prm0,prm);
 
 		# Save partial progress
 		prg = i/nsmp;
