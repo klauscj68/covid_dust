@@ -434,7 +434,9 @@ function mcmcsmp(nsmp::Int64;
 
 	# Create vectors for storing rejection statistics
 	rjtcnt = Dict{Symbol,Vector{Int64}}(:pos=>[1],:rjt=>fill(0,nsmp),
-					    :tot=>fill(0,nsmp));
+					    :tot=>fill(0,nsmp),
+					    :mhrjt=>fill(0,nsmp),
+					    :mhtot=>fill(0,nsmp));
 	mhcnt = Dict{Symbol,Vector{Int64}}(:pos=>[1],:rjt=>fill(0,nsmp),
 					   :tot=>fill(0,nsmp));
 
@@ -459,7 +461,10 @@ function mcmcsmp(nsmp::Int64;
 			#  mh accept-reject
 			if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;λval=λval)
 				wrtprm!(prm,prm0);
+			else
+				rjtcnt[:mhrjt][rjtcnt[:pos][1]]+=1;
 			end
+			rjtcnt[:mhtot][rjtcnt[:pos][1]]+=1;
 		else
 			# Metropolis-within-Gibbs by mixture of glbl prp and rw
 			nGibbs += 1;
@@ -481,6 +486,12 @@ function mcmcsmp(nsmp::Int64;
 						prm0[key] = prm[key];
 					else
 						prm[key] = prm0[key];
+						if flagctrej
+							rjtcnt[:mhrjt][rjtcnt[:pos][1]]+=1;
+						end
+					end
+					if flagctrej
+						rjtcnt[:mhtot][rjtcnt[:pos][1]]+=1;
 					end
 				else 
 					# rw
@@ -519,7 +530,9 @@ function mcmcsmp(nsmp::Int64;
 			pos = floor(prg/Δprg)*Δprg;
 			CSV.write("GibbsMCMC.csv", DataFrame(SMP[:,1:i]), writeheader=false);
 			dftemp = DataFrame(:rjtrej=>rjtcnt[:rjt][1:i],:rjttot=>rjtcnt[:tot][1:i],
-					   :mhrej=>mhcnt[:rjt][1:i],:mhtot=>mhcnt[:tot][1:i]);
+					   :mhrej=>mhcnt[:rjt][1:i],:mhtot=>mhcnt[:tot][1:i],
+					   :rjtmhrej=>rjtcnt[:mhrjt][1:i],
+					   :rjtmhtot=>rjtcnt[:mhtot][1:i]);
 			CSV.write("RejStats.csv",dftemp);
 			mysaverng(rng);
 			println("$pos" *"/1 complete with MCMC samples ...")
@@ -533,7 +546,9 @@ function mcmcsmp(nsmp::Int64;
 	
 	# Save rejection statistics to csv
 	dftemp = DataFrame(:rjtrej=>rjtcnt[:rjt],:rjttot=>rjtcnt[:tot],
-			   :mhrej=>mhcnt[:rjt],:mhtot=>mhcnt[:tot]);
+			   :mhrej=>mhcnt[:rjt],:mhtot=>mhcnt[:tot],
+			   :rjtmhrej=>rjtcnt[:mhrjt],
+			   :rjtmhtot=>rjtcnt[:mhtot]);
 	CSV.write("RejStats.csv",dftemp);
 
 	# Save random number generator state
