@@ -327,7 +327,9 @@ function acptrjt!(prm::Dict{Symbol,Float64},
 		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
 		  rng::MersenneTwister=MersenneTwister(),
 		  key::Symbol=:ALL,
-		  uenv::Float64=1.0)
+		  uenv::Float64=1.0,
+		  rjtcnt::Dict{Symbol,Vector{Int64}}=Dict{Symbol,Vector{Int64}}(
+						      :pos=>[0],:rjt=>[0],:tot=>[0]) )
 	if (key!=:ALL)&&(!prmvary[key])
 		return
 	end
@@ -351,6 +353,8 @@ function acptrjt!(prm::Dict{Symbol,Float64},
 		gr = rand(rng)*uenv;
 		if log(gr)<logρ!(prm,prmrg,prmvary;λval=λval)
 			flagfd = true;
+		elseif rjtcnt[:pos][1]!=0
+			rjtcnt[:rjt][rjtcnt[:pos][1]] += 1;
 		end
 	end
 end
@@ -428,14 +432,22 @@ function mcmcsmp(nsmp::Int64;
 	# Create matrix for samples
 	SMP = Matrix{Float64}(undef,length(V),nsmp);
 
+	# Create vectors for storing rejection statistics
+	rjtcnt = Dict{Symbol,Vector{Int64}}(:pos=>[1],:rjt=>fill(0,nsmp),
+					    :tot=>fill(0,nsmp));
+	mhcnt = Dict{Symbol,Vector{Int64}}(:pos=>[1],:rjt=>fill(0,nsmp),
+					   :tot=>fill(0,nsmp));
+
 	# run mcmc
 	pos = 0.0; Δprg = 0.02; nMH = 0; nGibbs = 0;
 	for i=1:nsmp
 		if rand(rng) < MHmix
 			# Global Metropolis-Hastings
 			nMH += 1;
-			#  glbl propose
-			acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng);
+			#  glbl propose and record rej stats
+			acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,
+				                   rjtcnt=rjtcnt);
+			rjtcnt[:tot][rjtcnt[:pos][1]]+=1;
 
 			#  mh accept-reject
 			if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;λval=λval)
@@ -446,8 +458,10 @@ function mcmcsmp(nsmp::Int64;
 			nGibbs += 1;
 			for key in vkeys
 				if rand(rng) >= MGrw
-					# glbl propose
-					acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,key=key);
+					# glbl propose and record rej stats
+					acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,key=key,
+						                   rjtcnt=rjtcnt);
+					rjtcnt[:tot][rjtcnt[:pos][1]]+=1;
 
 					# mh accept-reject
 					#  the resulting yk value stored to prm0 and prm 
@@ -461,7 +475,7 @@ function mcmcsmp(nsmp::Int64;
 					# rw
 					ranw!(prm0,prm,prmrg,prmvary;key=key);
 
-					# mh accept-reject
+					# mh accept-reject and record rej stats
 					#  the resulting yk value stored to prm0 and prm 
 					#  for next iteration of Gibbs
 					if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;
@@ -469,7 +483,9 @@ function mcmcsmp(nsmp::Int64;
 						prm0[key] = prm[key];
 					else
 						prm[key] = prm0[key];
+						mhcnt[:rjt][mhcnt[:pos][1]]+=1;
 					end
+					mhcnt[:tot][mhcnt[:pos][1]]+=1;
 				end
 			end
 		end
@@ -478,11 +494,18 @@ function mcmcsmp(nsmp::Int64;
 		P0 = @view SMP[:,i];
 		wrtprm!(prm0,vkeys,P0); wrtprm!(prm0,prm);
 
+		# Cycle rej stat tracker to next position
+		rjtcnt[:pos][1] = i;
+		mhcnt[:pos][1] = i;
+
 		# Save partial progress
 		prg = i/nsmp;
 		if prg >= pos + Δprg
 			pos = floor(prg/Δprg)*Δprg;
 			CSV.write("GibbsMCMC.csv", DataFrame(SMP[:,1:i]), writeheader=false);
+			dftemp = DataFrame(:rjtrej=>rjtcnt[:rjt][1:i],:rjttot=>rjtcnt[:tot][1:i],
+					   :mhrej=>mhcnt[:rjt][1:i],:mhtot=>mhcnt[:tot][1:i]);
+			CSV.write("RejStats.csv",dftemp);
 			mysaverng(rng);
 			println("$pos" *"/1 complete with MCMC samples ...")
 		end
@@ -492,7 +515,15 @@ function mcmcsmp(nsmp::Int64;
 	println("Number of MH samples: $nMH");
 	println("Number of Gibbs samples: $nGibbs");
 	CSV.write("GibbsMCMC.csv", [DataFrame(:prm=>vkeys) DataFrame(SMP)], writeheader=false);
+	
+	# Save rejection statistics to csv
+	dftemp = DataFrame(:rjtrej=>rjtcnt[:rjt],:rjttot=>rjtcnt[:tot],
+			   :mhrej=>mhcnt[:rjt],:mhtot=>mhcnt[:tot]);
+	CSV.write("RejStats.csv",dftemp);
+
+	# Save random number generator state
 	mysaverng(rng);
+
 
 	return SMP
 end
