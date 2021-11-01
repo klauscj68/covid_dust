@@ -470,14 +470,10 @@ function mcmcsmp(nsmp::Int64;
 
 				if rand(rng) >= MGrw
 					# glbl propose and record rej stats
-					if flagctrej
-						acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,key=key,
-						                   rjtcnt=rjtcnt);
-						rjtcnt[:tot][rjtcnt[:pos][1]]+=1;
-					else
-						acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,key=key);
-					end
-
+					acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,key=key,
+					                    	   rjtcnt=rjtcnt);
+					rjtcnt[:tot][rjtcnt[:pos][1]]+=1;
+					
 					# mh accept-reject
 					#  the resulting yk value stored to prm0 and prm 
 					#  for next iteration of Gibbs
