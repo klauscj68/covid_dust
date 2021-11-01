@@ -12,7 +12,7 @@ function data()
 	
 	# max permitted number of infected people in building
 	#  Should be at or more than 40 bc of Fall Iso using 40
-	prm[:nmax] = 100.0; nmax = Int64(prm[:nmax]);
+	prm[:nmax] = 50.0; nmax = Int64(prm[:nmax]);
 
 	# number of infected people in the building
 	prm[:n] = 10.0;
@@ -69,12 +69,12 @@ function mcmcrg()
 	
 	# max permitted number of infected people in building
 	#  nmax should agree with what is in data and not be varied
-	prmrg[:nmax] = [0.0,100.0]; nmax = Int64(prmrg[:nmax][2]);
+	prmrg[:nmax] = [0.0,50.0]; nmax = Int64(prmrg[:nmax][2]);
 	prmvary[:nmax] = false;
 
 	# number of infected people in the building
 	#  bound by nmax enforced in prior
-	prmrg[:n] = [0.0,100.0];
+	prmrg[:n] = [0.0,49.0]; # For rej stats have be 1 less than nmax
 	prmvary[:n] = true;
 
 	# individual infection times
@@ -438,6 +438,13 @@ function mcmcsmp(nsmp::Int64;
 	mhcnt = Dict{Symbol,Vector{Int64}}(:pos=>[1],:rjt=>fill(0,nsmp),
 					   :tot=>fill(0,nsmp));
 
+	# Preallocate vectors for prm symb's that aren't used in likelihood
+	# due to varying number of indiv's. Used in computing rej stats.
+	Asymb = [Symbol(:A,i) for i=1:Int64(prm[:nmax])];
+	Aₓsymb = [Symbol(:Aₓ,i) for i=1:Int64(prm[:nmax])];
+	Lsymb = [Symbol(:L,i) for i=1:Int64(prm[:nmax])];
+	psymb = [Symbol(:p,i) for i=1:Int64(prm[:nmax])];
+
 	# run mcmc
 	pos = 0.0; Δprg = 0.02; nMH = 0; nGibbs = 0;
 	for i=1:nsmp
@@ -457,11 +464,19 @@ function mcmcsmp(nsmp::Int64;
 			# Metropolis-within-Gibbs by mixture of glbl prp and rw
 			nGibbs += 1;
 			for key in vkeys
+				nval = Int64(floor(prm[:n]))+1;
+				flagctrej = !( (key in Asymb[nval:end])||(key in Aₓsymb[nval:end])||
+					       (key in Lsymb[nval:end])||(key in psymb[nval:end]) );
+
 				if rand(rng) >= MGrw
 					# glbl propose and record rej stats
-					acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,key=key,
+					if flagctrej
+						acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,key=key,
 						                   rjtcnt=rjtcnt);
-					rjtcnt[:tot][rjtcnt[:pos][1]]+=1;
+						rjtcnt[:tot][rjtcnt[:pos][1]]+=1;
+					else
+						acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,key=key);
+					end
 
 					# mh accept-reject
 					#  the resulting yk value stored to prm0 and prm 
@@ -483,9 +498,13 @@ function mcmcsmp(nsmp::Int64;
 						prm0[key] = prm[key];
 					else
 						prm[key] = prm0[key];
-						mhcnt[:rjt][mhcnt[:pos][1]]+=1;
+						if flagctrej
+							mhcnt[:rjt][mhcnt[:pos][1]]+=1;
+						end
 					end
-					mhcnt[:tot][mhcnt[:pos][1]]+=1;
+					if flagctrej
+						mhcnt[:tot][mhcnt[:pos][1]]+=1;
+					end
 				end
 			end
 		end
