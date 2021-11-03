@@ -12,10 +12,10 @@ function data()
 	
 	# max permitted number of infected people in building
 	#  Should be at or more than 40 bc of Fall Iso using 40
-	prm[:nmax] = 50.0; nmax = Int64(prm[:nmax]);
+	prm[:nmax] = 41.0; nmax = Int64(prm[:nmax]);
 
 	# number of infected people in the building
-	prm[:n] = 10.0;
+	prm[:n] = 40.0;
 
 	# individual infection times
 	for i=1:nmax
@@ -33,13 +33,13 @@ function data()
 	#  shedding amplitude position
 	for i=1:nmax
 		sym = Symbol("Aₓ"*string(i));
-		prm[sym] = 3.5;
+		prm[sym] = 7.0;
 	end
 
 	#  shedding duration
 	for i=1:nmax
 		sym = Symbol("L"*string(i));
-		prm[sym] = 7.0;
+		prm[sym] = 14.0;
 	end
 
 	# p-survival params
@@ -52,7 +52,7 @@ function data()
 	prm[:T] = 7.0;
 
 	# dust measurement copies/mg dust
-	prm[:Y] = 5.0;
+	prm[:Y] = 172.0;
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
@@ -75,7 +75,7 @@ function mcmcrg()
 	# number of infected people in the building
 	#  bound by nmax enforced in prior
 	prmrg[:n] = [0.0,49.0]; # For rej stats have be 1 less than nmax
-	prmvary[:n] = true;
+	prmvary[:n] = false;
 
 	# individual infection times
 	for i=1:nmax
@@ -103,7 +103,7 @@ function mcmcrg()
 	for i=1:nmax
 		sym = Symbol("L"*string(i));
 		prmrg[sym] = [7.0,14.0];
-		prmvary[sym] = true;
+		prmvary[sym] = false;
 	end
 
 	# p-survival params
@@ -247,13 +247,13 @@ function logπ!(prm::Dict{Symbol,Float64},
 	# Prior calibrated from fall isolation data
 	#  Oct: 40 ppl at 172 copies/mg dust
 	#  Nov: 40 ppl at 283 copies/mg dust
-	val2 = 0.0;
-	for i=1:40
-		val2 += prm[Symbol(:p,i)]*λval[i];
-	end
-	val2 = -val2 + 172*log(val2);
-
-	val += val2;
+	#val2 = 0.0;
+	#for i=1:40
+	#	val2 += prm[Symbol(:p,i)]*λval[i];
+	#end
+	#val2 = -val2 + 172*log(val2);
+	#
+	#val += val2;
 	
 	return val
 end
@@ -368,7 +368,7 @@ function ranw!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	       rng::MersenneTwister=MersenneTwister(),
 	       key::Symbol=:ALL,
-	       relΔr::Float64=0.025)
+	       relΔr::Float64=0.075)
 	if (key!=:ALL)&&(!prmvary[key])
 		return
 	end
