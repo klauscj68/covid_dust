@@ -48,3 +48,11 @@ function dust_n(n, a, b, T, xi)
     end
     return sum(total_dust)
 end
+
+
+data = zeros(1, 3)
+for k in 1:3
+    people[k] = dust_n(40, .01725, .00225, 7, .6931472)
+end
+
+writedlm("dust.csv", data, ',')
