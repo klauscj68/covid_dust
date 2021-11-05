@@ -1,4 +1,4 @@
-using Random,CSV,DataFrames
+using Random,CSV,DataFrames,SpecialFunctions
 VecVw = Union{Vector{Float64},
 	      SubArray{Float64, 1, Matrix{Float64}, Tuple{Base.Slice{Base.OneTo{Int64}}, Int64}, true}
 	      };
@@ -6,16 +6,21 @@ VecVw = Union{Vector{Float64},
 # data
 """
 Return dictionary with default parameter values
+ First niso entries of vectors correspond to isolation room data
+ niso+1:niso+n are where number of infected people in building are given
 """
 function data()
 	prm = Dict{Symbol,Float64}();
 	
-	# max permitted number of infected people in building
-	#  Should be at or more than 40 bc of Fall Iso using 40
-	prm[:nmax] = 41.0; nmax = Int64(prm[:nmax]);
+	# cap of fall iso and number of infected people in building
+	#  Should be strictly more than niso + n
+	prm[:nmax] = 141.0; nmax = Int64(prm[:nmax]);
+
+	# number of people in iso
+	prm[:niso] = 40.0;
 
 	# number of infected people in the building
-	prm[:n] = 40.0;
+	prm[:n] = 10.0;
 
 	# individual infection times
 	for i=1:nmax
@@ -24,6 +29,13 @@ function data()
 	end
 
 	# λ-params
+	# Γ-hyperparameters for shedding amplitude
+	# Γ(α,β) ~ β^α*x^{α-1}exp(-βx)/Γ(α)
+	#  mean: α/β
+	#  var:  α/β^2
+	prm[:Γα] = 0.01725;
+	prm[:Γβ] = 0.002225;
+
 	#  shedding amplitude
 	for i=1:nmax
 		sym = Symbol("A"*string(i));
@@ -33,7 +45,7 @@ function data()
 	#  shedding amplitude position
 	for i=1:nmax
 		sym = Symbol("Aₓ"*string(i));
-		prm[sym] = 7.0;
+		prm[sym] = 3.5;
 	end
 
 	#  shedding duration
@@ -42,17 +54,15 @@ function data()
 		prm[sym] = 14.0;
 	end
 
-	# p-survival params
-	for i=1:nmax
-		sym = Symbol("p"*string(i));
-		prm[sym] = 0.5;
-	end
+	# particle decay rate
+	prm[:ξ] = log(2);
 
 	# Time after time 0 at which dust collected
 	prm[:T] = 7.0;
 
 	# dust measurement copies/mg dust
-	prm[:Y] = 172.0;
+	prm[:Y] = 32;
+	prm[:Yiso] = 172.0;
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
@@ -69,13 +79,17 @@ function mcmcrg()
 	
 	# max permitted number of infected people in building
 	#  nmax should agree with what is in data and not be varied
-	prmrg[:nmax] = [0.0,50.0]; nmax = Int64(prmrg[:nmax][2]);
+	prmrg[:nmax] = [140.0,141.0]; nmax = Int64(prmrg[:nmax][2]);
 	prmvary[:nmax] = false;
+
+	# number of people in iso
+	prmrg[:niso] = [39.0,40.0];
+	prmvary[:niso] = false;
 
 	# number of infected people in the building
 	#  bound by nmax enforced in prior
-	prmrg[:n] = [0.0,49.0]; # For rej stats have be 1 less than nmax
-	prmvary[:n] = false;
+	prmrg[:n] = [0.0,100.0]; # For rej stats have be 1 less than nmax
+	prmvary[:n] = true;
 
 	# individual infection times
 	for i=1:nmax
@@ -85,17 +99,24 @@ function mcmcrg()
 	end
 
 	# λ-params # maybe 50% pickup in dorms by vacuum
+	# Γ-distribution hyperparameters for amplitude
+	prmrg[:Γα] = [0.001725,0.1725];
+	prmvary[:Γα] = true;
+
+	prmrg[:Γβ] = [0.0002225,0.02225];
+	prmvary[:Γβ] = true;
+
 	#  shedding amplitude
 	for i=1:nmax
 		sym = Symbol("A"*string(i));
-		prmrg[sym] = [0.0,1.0];
+		prmrg[sym] = [0.0,750.0];
 		prmvary[sym] = true;
 	end
 
 	#  shedding amplitude position
 	for i=1:nmax
 		sym = Symbol("Aₓ"*string(i));
-		prmrg[sym] = [0.0,7.0];
+		prmrg[sym] = [0.0,14.0];
 		prmvary[sym] = true;
 	end
 
@@ -106,12 +127,9 @@ function mcmcrg()
 		prmvary[sym] = false;
 	end
 
-	# p-survival params
-	for i=1:nmax
-		sym = Symbol("p"*string(i));
-		prmrg[sym] = [0.0,1.0]; # lose an order of magnitude a week
-		prmvary[sym] = true;
-	end
+	# particle decay rate
+	prmrg[:ξ] = log(2)./[7.0,14.0];
+	prmvary[:ξ] = false;
 
 	# Time after time 0 at which dust is collected
 	prmrg[:T] = [5.0,10.0];
@@ -120,6 +138,9 @@ function mcmcrg()
 	# dust measurement copies/mg dust
 	prmrg[:Y] = [0.0,1000.0]; # with Delta numbers over 1000 can go up to 10,000
 	prmvary[:Y] = false;
+
+	prmrg[:Yiso] = [172.0,173.0];
+	prmvary[:Yiso] = false;
 
 	return prmrg,prmvary
 end
@@ -176,21 +197,23 @@ end
 
 # shedλ
 """
-Compute the shedding ∫ᵀ₀λ(t-t₀;θ)dt as function of input parameters
+Compute the shedding ∫ᵀ₀exp[-ξ*(T-t)]λ(t-t₀;θ)dt as function of input parameters
 Multiple dispatch for case of single param values and a dictionary.
 Also include a mutating version of the dictionary case for mem alloc
 """
-function shedλ(A::Float64,L::Float64,t0::Float64,T::Float64,Aₓ::Float64)
+function shedλ(A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
+	       ξ::Float64)
 	# exported from Maple
-	if T<=Aₓ+t0
-		λval = A*T*(T-2*t0)/(2*Aₓ);
-	else
-		λval = A*(Aₓ^2*L-2*Aₓ*T*L+2*t0*L*Aₓ+Aₓ*T^2-2*Aₓ*T*t0+t0^2*L)/(2*Aₓ*(-L+Aₓ));
-	end
+	#  Indicators
+	χ₁ = (t₀+Aₓ-T>=0); χ₂ = (Aₓ+t₀>=0);
 
-	if Aₓ+t0<0
-		λval += -A*L*(Aₓ+t0)^2/(2*Aₓ*(-L+Aₓ));
-	end
+	λval = ( 
+		L*(χ₁-χ₂)*exp(ξ*(t₀+Aₓ-T)) +
+		L*(-ξ*Aₓ-1+(T-t₀)*ξ)*χ₁+
+	        exp(-ξ*T)*L*(ξ*Aₓ+ξ*t₀+1)*χ₂ -
+	        ( (ξ*L+ξ*t₀+1)*exp(-ξ*T)-ξ*L-1+(T-t₀)*ξ )*Aₓ
+	       )*A;
+	λval *= 1/( (L-Aₓ)*ξ^2*Aₓ );
 
 	return λval
 end
@@ -199,7 +222,8 @@ function shedλ(prm::Dict{Symbol,Float64})
 	for i=1:Int64(prm[:nmax])
 		λval[i] = shedλ(prm[Symbol(:A,i)],prm[Symbol(:L,i)],
 				prm[Symbol(:t,i)],prm[:T],
-				prm[Symbol(:Aₓ,i)]);
+				prm[Symbol(:Aₓ,i)],
+				prm[:ξ]);
 	end
 
 	return λval
@@ -209,7 +233,8 @@ function shedλ!(prm::Dict{Symbol,Float64};
 	for i=1:Int64(prm[:nmax])
 		λval[i] = shedλ(prm[Symbol(:A,i)],prm[Symbol(:L,i)],
 				prm[Symbol(:t,i)],prm[:T],
-				prm[Symbol(:Aₓ,i)]);
+				prm[Symbol(:Aₓ,i)],
+				prm[:ξ]);
 	end
 
 end
@@ -235,25 +260,30 @@ function logπ!(prm::Dict{Symbol,Float64},
 	end
 
 	# Likelihood
+	niso = Int64(floor(prm[:niso])); n = Int64(floor(prm[:n]));
 	val = 0.0;
 	if flagλval
 		shedλ!(prm;λval=λval);
 	end
-	for i=1:Int64(floor(prm[:n]))
-		val += prm[Symbol(:p,i)]*λval[i];
+	for i=(niso+1):(niso+n)
+		val += λval[i];
 	end
-	val = -val + prm[:Y]*log(val);	
+	val = -val + floor(prm[:Y])*log(val);	
 	
 	# Prior calibrated from fall isolation data
-	#  Oct: 40 ppl at 172 copies/mg dust
-	#  Nov: 40 ppl at 283 copies/mg dust
-	#val2 = 0.0;
-	#for i=1:40
-	#	val2 += prm[Symbol(:p,i)]*λval[i];
-	#end
-	#val2 = -val2 + 172*log(val2);
-	#
-	#val += val2;
+	val2 = 0.0;
+	for i=1:niso
+		val2 += λval[i];
+	end
+	val2 = -val2 + floor(prm[:Yiso])*log(val2);
+
+	val += val2;
+
+	# Priors on shedding amplitude
+	for i=1:(niso+n)
+		Ai = Symbol(:A,i);
+		val += prm[:Γα]*log(prm[:Γβ])+(prm[:Γα]-1)*log(prm[Ai]) - prm[:Γβ]*prm[Ai] - log(gamma(prm[:Γα]));
+	end
 	
 	return val
 end
@@ -261,8 +291,9 @@ end
 # logρ!
 """
 Evaluate the log unnormalized proposal density used for global sampling
-Density is prop to
-1/[ (∑pᵢμᵢ-y)^2 + 1 ]
+Density is
+1/[ (∑pᵢμᵢ-y)^2/n^2 + 1 ]
+where sum is actually the greater of the iso or building
 which has absolute bound 1
 """
 function logρ!(prm::Dict{Symbol,Float64},
@@ -278,16 +309,28 @@ function logρ!(prm::Dict{Symbol,Float64},
 	end
 
 	# density
+#	niso = Int64(floor(prm[:niso])); n = Int64(floor(prm[:n]));
 	val = 0.0;
-        if flagλval
-                shedλ!(prm;λval=λval);
-	end
-	for i=1:Int64(floor(prm[:n]))
-		val += prm[Symbol(:p,i)]*λval[i];
-	end
-	
-	val = -log( (val-prm[:Y])^2 + 1 );	
+#        if flagλval
+#                shedλ!(prm;λval=λval);
+#	end
+#	for i=(niso+1):(niso+n)
+#		val += λval[i];
+#	end
+#	val = (val-prm[:Y])^2/n^2;	
+	#val = -log( (val-prm[:Y])^2/n^2 + 1 );	
 
+	# isolation
+#	val2 = 0.0;
+#	for i=1:niso
+#		val2 += λval[i];
+#	end
+#	val2 = (val2-prm[:Yiso])^2/niso^2;
+	#val2 = -log( (val2-prm[:Yiso])^2/niso^2+1 );
+	
+
+#	val = val > val2 ? val : val2;
+#	val = -log(val+1);
 	return val
 end
 
@@ -368,7 +411,7 @@ function ranw!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	       rng::MersenneTwister=MersenneTwister(),
 	       key::Symbol=:ALL,
-	       relΔr::Float64=0.075)
+	       relΔr::Float64=0.025)
 	if (key!=:ALL)&&(!prmvary[key])
 		return
 	end
@@ -417,7 +460,8 @@ mcmc sample the posterior distribution
 function mcmcsmp(nsmp::Int64;
 		 rng::MersenneTwister=MersenneTwister(),
 		 MHmix::Float64=0.1,MGrw::Float64=0.99,
-		 flagrst::Bool=false)
+		 flagrst::Bool=false,
+		 relΔr::Float64=0.15)
 	prm,vkeys,V = wrtprm(); 
 	prmrg,prmvary = mcmcrg();
 	λval = Vector{Float64}(undef,Int64(prm[:nmax]));
@@ -469,7 +513,7 @@ function mcmcsmp(nsmp::Int64;
 			# Metropolis-within-Gibbs by mixture of glbl prp and rw
 			nGibbs += 1;
 			for key in vkeys
-				nval = Int64(floor(prm[:n]))+1;
+				nval = Int64(floor(prm[:niso])+floor(prm[:n]))+1;
 				flagctrej = !( (key in Asymb[nval:end])||(key in Aₓsymb[nval:end])||
 					       (key in Lsymb[nval:end])||(key in psymb[nval:end]) );
 
@@ -495,7 +539,7 @@ function mcmcsmp(nsmp::Int64;
 					end
 				else 
 					# rw
-					ranw!(prm0,prm,prmrg,prmvary;key=key);
+					ranw!(prm0,prm,prmrg,prmvary;key=key,relΔr=relΔr);
 
 					# mh accept-reject and record rej stats
 					#  the resulting yk value stored to prm0 and prm 
