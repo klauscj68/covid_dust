@@ -50,9 +50,9 @@ function dust_n(n, a, b, T, xi)
 end
 
 
-people = zeros(1, 10000)
-for k in 1:10000
+data = zeros(1, 3)
+for k in 1:3
     people[k] = dust_n(40, .01725, .00225, 7, .6931472)
 end
 
-writedlm("dust.csv", people, ',')
+writedlm("dust.csv", data, ',')
