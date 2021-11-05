@@ -14,10 +14,10 @@ function data()
 	
 	# cap of fall iso and number of infected people in building
 	#  Should be strictly more than niso + n
-	prm[:nmax] = 141.0; nmax = Int64(prm[:nmax]);
+	prm[:nmax] = 101.0; nmax = Int64(prm[:nmax]);
 
 	# number of people in iso
-	prm[:niso] = 40.0;
+	prm[:niso] = 1.0;
 
 	# number of infected people in the building
 	prm[:n] = 10.0;
@@ -51,7 +51,7 @@ function data()
 	#  shedding duration
 	for i=1:nmax
 		sym = Symbol("L"*string(i));
-		prm[sym] = 14.0;
+		prm[sym] = 7.0;
 	end
 
 	# particle decay rate
@@ -61,7 +61,7 @@ function data()
 	prm[:T] = 7.0;
 
 	# dust measurement copies/mg dust
-	prm[:Y] = 32;
+	prm[:Y] = 7.0;
 	prm[:Yiso] = 172.0;
 	
 	vkeys = [k for k in keys(prm)];
@@ -79,7 +79,7 @@ function mcmcrg()
 	
 	# max permitted number of infected people in building
 	#  nmax should agree with what is in data and not be varied
-	prmrg[:nmax] = [140.0,141.0]; nmax = Int64(prmrg[:nmax][2]);
+	prmrg[:nmax] = [100.0,101.0]; nmax = Int64(prmrg[:nmax][2]);
 	prmvary[:nmax] = false;
 
 	# number of people in iso
@@ -88,7 +88,7 @@ function mcmcrg()
 
 	# number of infected people in the building
 	#  bound by nmax enforced in prior
-	prmrg[:n] = [0.0,100.0]; # For rej stats have be 1 less than nmax
+	prmrg[:n] = [1.0,100.0]; # For rej stats have be 1 less than nmax
 	prmvary[:n] = true;
 
 	# individual infection times
@@ -101,10 +101,10 @@ function mcmcrg()
 	# λ-params # maybe 50% pickup in dorms by vacuum
 	# Γ-distribution hyperparameters for amplitude
 	prmrg[:Γα] = [0.001725,0.1725];
-	prmvary[:Γα] = true;
+	prmvary[:Γα] = false;
 
 	prmrg[:Γβ] = [0.0002225,0.02225];
-	prmvary[:Γβ] = true;
+	prmvary[:Γβ] = false;
 
 	#  shedding amplitude
 	for i=1:nmax
@@ -116,7 +116,7 @@ function mcmcrg()
 	#  shedding amplitude position
 	for i=1:nmax
 		sym = Symbol("Aₓ"*string(i));
-		prmrg[sym] = [0.0,14.0];
+		prmrg[sym] = [0.0,7.0];
 		prmvary[sym] = true;
 	end
 
@@ -260,7 +260,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 	end
 
 	# Likelihood
-	niso = Int64(floor(prm[:niso])); n = Int64(floor(prm[:n]));
+	niso = Int64(floor(prm[:niso])); n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
 	val = 0.0;
 	if flagλval
 		shedλ!(prm;λval=λval);
@@ -271,16 +271,16 @@ function logπ!(prm::Dict{Symbol,Float64},
 	val = -val + floor(prm[:Y])*log(val);	
 	
 	# Prior calibrated from fall isolation data
-	val2 = 0.0;
-	for i=1:niso
-		val2 += λval[i];
-	end
-	val2 = -val2 + floor(prm[:Yiso])*log(val2);
+#	val2 = 0.0;
+#	for i=1:niso
+#		val2 += λval[i];
+#	end
+#	val2 = -val2 + floor(prm[:Yiso])*log(val2);
 
-	val += val2;
+#	val += val2;
 
 	# Priors on shedding amplitude
-	for i=1:(niso+n)
+	for i=1:nmax
 		Ai = Symbol(:A,i);
 		val += prm[:Γα]*log(prm[:Γβ])+(prm[:Γα]-1)*log(prm[Ai]) - prm[:Γβ]*prm[Ai] - log(gamma(prm[:Γα]));
 	end
