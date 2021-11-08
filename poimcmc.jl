@@ -61,7 +61,7 @@ function data()
 	prm[:T] = 7.0;
 
 	# dust measurement copies/mg dust
-	prm[:Y] = 7.0;
+	prm[:Y] = 205.0;
 	prm[:Yiso] = 172.0;
 	
 	vkeys = [k for k in keys(prm)];
@@ -309,28 +309,28 @@ function logρ!(prm::Dict{Symbol,Float64},
 	end
 
 	# density
-#	niso = Int64(floor(prm[:niso])); n = Int64(floor(prm[:n]));
+	niso = Int64(floor(prm[:niso])); n = Int64(floor(prm[:n]));
 	val = 0.0;
-#        if flagλval
-#                shedλ!(prm;λval=λval);
-#	end
-#	for i=(niso+1):(niso+n)
-#		val += λval[i];
-#	end
-#	val = (val-prm[:Y])^2/n^2;	
+        if flagλval
+                shedλ!(prm;λval=λval);
+	end
+	for i=(niso+1):(niso+n)
+		val += λval[i];
+	end
+	val = abs(val-prm[:Y])/n;	
 	#val = -log( (val-prm[:Y])^2/n^2 + 1 );	
 
 	# isolation
-#	val2 = 0.0;
-#	for i=1:niso
-#		val2 += λval[i];
-#	end
-#	val2 = (val2-prm[:Yiso])^2/niso^2;
+	val2 = 0.0;
+	#for i=1:niso
+	#	val2 += λval[i];
+	#end
+	#val2 = abs(val2-prm[:Yiso])/niso;
 	#val2 = -log( (val2-prm[:Yiso])^2/niso^2+1 );
 	
 
-#	val = val > val2 ? val : val2;
-#	val = -log(val+1);
+	val = val > val2 ? val : val2;
+	val = -log(val+1);
 	return val
 end
 
