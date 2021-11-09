@@ -292,7 +292,7 @@ end
 """
 Evaluate the log unnormalized proposal density used for global sampling
 Density is
-1/[ (∑pᵢμᵢ-y)^2/n^2 + 1 ]
+1/[ |∑pᵢμᵢ-y|/n + 1 ]
 where sum is actually the greater of the iso or building
 which has absolute bound 1
 """
@@ -468,6 +468,12 @@ function mcmcsmp(nsmp::Int64;
 	
 	if flagrst
 		# restart sampling from csv
+		df0 = CSV.read("GibbsMCMC.csv",DataFrame,header=false);
+		vkeys = Symbol.(df0[:,1]); V = df0[:,end];
+		prm0,_ = rdprm(V,vkeys); prm = deepcopy(prm0); 
+		rng = myloadrng();
+
+		df0 = similar(df0,0);
 	else
 		init!(prm,prmrg,prmvary;λval=λval,rng=rng);
 		prm0 = deepcopy(prm);
@@ -572,7 +578,7 @@ function mcmcsmp(nsmp::Int64;
 		prg = i/nsmp;
 		if prg >= pos + Δprg
 			pos = floor(prg/Δprg)*Δprg;
-			CSV.write("GibbsMCMC.csv", DataFrame(SMP[:,1:i]), writeheader=false);
+			CSV.write("GibbsMCMC.csv",[DataFrame(:prm=>String.(vkeys)) DataFrame(SMP[:,1:i])], writeheader=false,append=false);
 			dftemp = DataFrame(:rjtrej=>rjtcnt[:rjt][1:i],:rjttot=>rjtcnt[:tot][1:i],
 					   :mhrej=>mhcnt[:rjt][1:i],:mhtot=>mhcnt[:tot][1:i],
 					   :rjtmhrej=>rjtcnt[:mhrjt][1:i],
@@ -586,7 +592,7 @@ function mcmcsmp(nsmp::Int64;
 	# Save chain parameter values to csv
 	println("Number of MH samples: $nMH");
 	println("Number of Gibbs samples: $nGibbs");
-	CSV.write("GibbsMCMC.csv", [DataFrame(:prm=>vkeys) DataFrame(SMP)], writeheader=false);
+	CSV.write("GibbsMCMC.csv", [DataFrame(:prm=>String.(vkeys)) DataFrame(SMP)], writeheader=false, append=false);
 	
 	# Save rejection statistics to csv
 	dftemp = DataFrame(:rjtrej=>rjtcnt[:rjt],:rjttot=>rjtcnt[:tot],
