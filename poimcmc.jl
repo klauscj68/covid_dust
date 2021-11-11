@@ -1,4 +1,4 @@
-using Random,CSV,DataFrames,SpecialFunctions
+using Random,CSV,DataFrames,SpecialFunctions,Distributions
 VecVw = Union{Vector{Float64},
 	      SubArray{Float64, 1, Matrix{Float64}, Tuple{Base.Slice{Base.OneTo{Int64}}, Int64}, true}
 	      };
@@ -61,7 +61,7 @@ function data()
 	prm[:T] = 7.0;
 
 	# dust measurement copies/mg dust
-	prm[:Y] = 205.0;
+	prm[:Y] = 144.0;
 	prm[:Yiso] = 172.0;
 	
 	vkeys = [k for k in keys(prm)];
@@ -239,6 +239,26 @@ function shedλ!(prm::Dict{Symbol,Float64};
 
 end
 
+# logΓ
+"""
+Compute log density of a Γ-distribution
+"""
+function logΓ(α::Float64,β::Float64,x::Float64)
+	val = x>0 ? α*log(β)+(α-1)*log(x) - β*log(x) - log(gamma(α)) : -Inf;
+	
+	return val
+end
+
+# lognrm
+"""
+Compute log density of a normal distribution
+"""
+function lognrm(μ::Float64,σ::Float64,x::Float64)
+	val = -0.5*log(2*π) - log(σ) - 0.5*( (x-μ)/σ )^2;
+
+	return val
+end
+
 # logπ!
 """
 Evaluate the log unnormalized posterior density for given choice of model parameters
@@ -282,55 +302,100 @@ function logπ!(prm::Dict{Symbol,Float64},
 	# Priors on shedding amplitude
 	for i=1:nmax
 		Ai = Symbol(:A,i);
-		val += prm[:Γα]*log(prm[:Γβ])+(prm[:Γα]-1)*log(prm[Ai]) - prm[:Γβ]*prm[Ai] - log(gamma(prm[:Γα]));
+		val += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
 	end
 	
 	return val
 end
 
-# logρ!
+# prp!
 """
-Evaluate the log unnormalized proposal density used for global sampling
-Density is
-1/[ |∑pᵢμᵢ-y|/n + 1 ]
-where sum is actually the greater of the iso or building
-which has absolute bound 1
+Metropolis proposal function
 """
-function logρ!(prm::Dict{Symbol,Float64},
-	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
-	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])),
-	       flagλval::Bool=true)
- 
-	# Bounding box support
-        for key in keys(prmvary)
-		if prmvary[key]&&( sum( (prm[key]<prmrg[key][1])+(prm[key]>prmrg[key][2]) ) !=0 )
-			return -Inf
+function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
+		  prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
+		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
+		  rng::MersenneTwister=MersenneTwister(),
+		  key::Symbol=:ALL,
+		  uenv::Float64=1.0)
+	if prmvary[:Γα]
+		ΔΓα = 0.02*(prmrg[:Γα][2]-prmrg[:Γα][1]);
+		prm[:Γα] = prm0[:Γα] + Δα*randn(rng);
+	end
+
+	if prmvary[:Γβ]
+                ΔΓβ = 0.02*(prmrg[:Γβ][2]-prmrg[:Γβ][1]);
+                prm[:Γβ] = prm0[:Γβ] + Δβ*randn(rng);
+        end
+
+	# Double-check this patched-MH rejection is valid
+	#  Point is if alpha and beta aren't in cnst reg, the chain automatically rejects it
+	#  Used since nonpositive values cause Gamma sampling to fail
+	if (prm[:Γα]<=0)||(prm[:Γβ]<=0)
+		for key in keys(prm0)	
+			prm[key] = prm0[key];
+		end
+		return
+	end
+
+	niso = Int64(floor(prm[:niso])); n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+	if prmvary[:A1]
+		Γdistr = Gamma(prm[:Γα],1/prm[:Γβ]);
+		for i=1:nmax
+			Ai = Symbol(:A,i);
+			prm[Ai] = rand(rng,Γdistr);
 		end
 	end
 
-	# density
-	niso = Int64(floor(prm[:niso])); n = Int64(floor(prm[:n]));
+	if prmvary[:Aₓ1]
+		for i=1:nmax
+			Axi = Symbol(:Aₓ,i);
+			prm[Axi] = prmrg[Axi][1]+rand(rng)*(prmrg[Axi][2]-prmrg[Axi][1]);
+		end
+	end
+
+	if prmvary[:L1]
+		for i=1:nmax
+			Li = Symbol(:L,i);
+			prm[Li] = prmrg[Li][1]+rand(rng)*(prmrg[Li][2]-prmrg[Li][1]);
+		end
+	end
+
+	if prmvary[:n]
+		prm[:n] = prmrg[:n][1]+rand(rng)*(prmrg[:n][2]-prmrg[:n][1])
+	end
+
+end
+
+# logρ!
+"""
+Evaluate the log unnormalized proposal density ρ(y|x)
+for the subset of parameters being varied
+"""
+function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
+	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
+	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])),
+	       flagλval::Bool=true)
 	val = 0.0;
-        if flagλval
-                shedλ!(prm;λval=λval);
-	end
-	for i=(niso+1):(niso+n)
-		val += λval[i];
-	end
-	val = abs(val-prm[:Y])/n;	
-	#val = -log( (val-prm[:Y])^2/n^2 + 1 );	
 
-	# isolation
-	val2 = 0.0;
-	#for i=1:niso
-	#	val2 += λval[i];
-	#end
-	#val2 = abs(val2-prm[:Yiso])/niso;
-	#val2 = -log( (val2-prm[:Yiso])^2/niso^2+1 );
+	if prmvary[:Γα]
+		ΔΓα = 0.02*(prmrg[:Γα][2]-prmrg[:Γα][1]);
+		val += lognrm(prm0[:Γα],ΔΓα,prm[:Γα]);
+	end
+
+	if prmvary[:Γβ]
+		ΔΓβ = 0.02*(prmrg[:Γβ][2]-prmrg[:Γβ][1]);
+		val += lognrm(prm0[:Γβ],ΔΓβ,prm[:Γβ]);
+	end
 	
+	niso = Int64(floor(prm[:niso])); n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+	if prmvary[:A1]
+		for i=1:nmax
+			Ai = Symbol(:A,i);
+			val += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
+		end
+	end
 
-	val = val > val2 ? val : val2;
-	val = -log(val+1);
 	return val
 end
 
@@ -360,77 +425,6 @@ function init!(prm::Dict{Symbol,Float64},
 	end
 end
 
-# acptrjt!
-"""
-Accept-reject propose from the global proposal density by uniformly
-sampling the subgraph
-"""
-function acptrjt!(prm::Dict{Symbol,Float64},
-		  prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
-		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
-		  rng::MersenneTwister=MersenneTwister(),
-		  key::Symbol=:ALL,
-		  uenv::Float64=1.0,
-		  rjtcnt::Dict{Symbol,Vector{Int64}}=Dict{Symbol,Vector{Int64}}(
-						      :pos=>[0],:rjt=>[0],:tot=>[0]) )
-	if (key!=:ALL)&&(!prmvary[key])
-		return
-	end
-
-	flagfd = false;
-	while !flagfd
-		if key!=:ALL
-			prm[key] = prmrg[key][1] .+ rand(rng)*(
-						       prmrg[key][2]-prmrg[key][1]
-						                      );
-		else
-			for key0 in keys(prmvary)
-				if prmvary[key0]
-					prm[key0] = prmrg[key0][1] .+ rand(rng)*(
-							     prmrg[key0][2]-prmrg[key0][1]
-							                                );
-				end
-			end
-		end
-
-		gr = rand(rng)*uenv;
-		if log(gr)<logρ!(prm,prmrg,prmvary;λval=λval)
-			flagfd = true;
-		elseif rjtcnt[:pos][1]!=0
-			rjtcnt[:rjt][rjtcnt[:pos][1]] += 1;
-		end
-	end
-end
-
-# ranw!
-"""
-Random walk propose a new sample
- Note: Assumes that prm is a copy of prm0 except in the entries being varied
-"""
-function ranw!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
-	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
-	       rng::MersenneTwister=MersenneTwister(),
-	       key::Symbol=:ALL,
-	       relΔr::Float64=0.025)
-	if (key!=:ALL)&&(!prmvary[key])
-		return
-	end
-
-	if key!=:ALL	
-		prm[key] = prm0[key] + randn(rng)*relΔr*(
-				           prmrg[key][2]-prmrg[key][1]
-				                                     );
-	else
-		for key0 in keys(prmvary)
-			if prmvary[key0]
-				prm[key0] = prm0[key0] + randn(rng)*relΔr*(
-					                  prmrg[key0][2]-prmrg[key0][1]
-					                                              );
-			end
-		end
-	end
-end
-
 # logmh!
 """
 Compute the log Metropolis-Hastings acceptance ratio
@@ -445,10 +439,8 @@ function logmh!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	val -= logπ!(prm0,prmrg,prmvary;λval=λval);
 
 	# proposal distribution
-	if flagcase==:glbl
-		val += logρ!(prm0,prmrg,prmvary;λval=λval);
-		val -= logρ!(prm,prmrg,prmvary;λval=λval);
-	end
+	val += logρ!(prm,prm0,prmrg,prmvary;λval=λval);
+	val -= logρ!(prm0,prm,prmrg,prmvary;λval=λval);
 
 	return val
 end
@@ -459,9 +451,7 @@ mcmc sample the posterior distribution
 """
 function mcmcsmp(nsmp::Int64;
 		 rng::MersenneTwister=MersenneTwister(),
-		 MHmix::Float64=0.1,MGrw::Float64=0.99,
-		 flagrst::Bool=false,
-		 relΔr::Float64=0.15)
+		 flagrst::Bool=false)
 	prm,vkeys,V = wrtprm(); 
 	prmrg,prmvary = mcmcrg();
 	λval = Vector{Float64}(undef,Int64(prm[:nmax]));
@@ -482,11 +472,7 @@ function mcmcsmp(nsmp::Int64;
 	# Create matrix for samples
 	SMP = Matrix{Float64}(undef,length(V),nsmp);
 
-	# Create vectors for storing rejection statistics
-	rjtcnt = Dict{Symbol,Vector{Int64}}(:pos=>[1],:rjt=>fill(0,nsmp),
-					    :tot=>fill(0,nsmp),
-					    :mhrjt=>fill(0,nsmp),
-					    :mhtot=>fill(0,nsmp));
+	# Create vectors for storing rejection statistics	
 	mhcnt = Dict{Symbol,Vector{Int64}}(:pos=>[1],:rjt=>fill(0,nsmp),
 					   :tot=>fill(0,nsmp));
 
@@ -500,78 +486,22 @@ function mcmcsmp(nsmp::Int64;
 	# run mcmc
 	pos = 0.0; Δprg = 0.02; nMH = 0; nGibbs = 0;
 	for i=1:nsmp
-		if rand(rng) < MHmix
-			# Global Metropolis-Hastings
-			nMH += 1;
-			#  glbl propose and record rej stats
-			acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,
-				                   rjtcnt=rjtcnt);
-			rjtcnt[:tot][rjtcnt[:pos][1]]+=1;
+		#  glbl propose and record rej stats
+		prp!(prm0,prm,prmrg,prmvary;λval=λval,rng=rng);
 
-			#  mh accept-reject
-			if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;λval=λval)
-				wrtprm!(prm,prm0);
-			else
-				rjtcnt[:mhrjt][rjtcnt[:pos][1]]+=1;
-			end
-			rjtcnt[:mhtot][rjtcnt[:pos][1]]+=1;
+		#  mh accept-reject
+		if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;λval=λval)
+			wrtprm!(prm,prm0);
 		else
-			# Metropolis-within-Gibbs by mixture of glbl prp and rw
-			nGibbs += 1;
-			for key in vkeys
-				nval = Int64(floor(prm[:niso])+floor(prm[:n]))+1;
-				flagctrej = !( (key in Asymb[nval:end])||(key in Aₓsymb[nval:end])||
-					       (key in Lsymb[nval:end])||(key in psymb[nval:end]) );
-
-				if rand(rng) >= MGrw
-					# glbl propose and record rej stats
-					acptrjt!(prm,prmrg,prmvary;λval=λval,rng=rng,key=key,
-					                    	   rjtcnt=rjtcnt);
-					rjtcnt[:tot][rjtcnt[:pos][1]]+=1;
-					
-					# mh accept-reject
-					#  the resulting yk value stored to prm0 and prm 
-					#  for next iteration of Gibbs
-					if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;λval=λval)
-						prm0[key] = prm[key];
-					else
-						prm[key] = prm0[key];
-						if flagctrej
-							rjtcnt[:mhrjt][rjtcnt[:pos][1]]+=1;
-						end
-					end
-					if flagctrej
-						rjtcnt[:mhtot][rjtcnt[:pos][1]]+=1;
-					end
-				else 
-					# rw
-					ranw!(prm0,prm,prmrg,prmvary;key=key,relΔr=relΔr);
-
-					# mh accept-reject and record rej stats
-					#  the resulting yk value stored to prm0 and prm 
-					#  for next iteration of Gibbs
-					if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;
-								  λval=λval,flagcase=:rw)
-						prm0[key] = prm[key];
-					else
-						prm[key] = prm0[key];
-						if flagctrej
-							mhcnt[:rjt][mhcnt[:pos][1]]+=1;
-						end
-					end
-					if flagctrej
-						mhcnt[:tot][mhcnt[:pos][1]]+=1;
-					end
-				end
-			end
+			mhcnt[:rjt][mhcnt[:pos][1]]+=1;
 		end
+			mhcnt[:tot][mhcnt[:pos][1]]+=1;
 
 		# Record the sample
 		P0 = @view SMP[:,i];
 		wrtprm!(prm0,vkeys,P0); wrtprm!(prm0,prm);
 
 		# Cycle rej stat tracker to next position
-		rjtcnt[:pos][1] = i;
 		mhcnt[:pos][1] = i;
 
 		# Save partial progress
@@ -579,10 +509,7 @@ function mcmcsmp(nsmp::Int64;
 		if prg >= pos + Δprg
 			pos = floor(prg/Δprg)*Δprg;
 			CSV.write("GibbsMCMC.csv",[DataFrame(:prm=>String.(vkeys)) DataFrame(SMP[:,1:i])], writeheader=false,append=false);
-			dftemp = DataFrame(:rjtrej=>rjtcnt[:rjt][1:i],:rjttot=>rjtcnt[:tot][1:i],
-					   :mhrej=>mhcnt[:rjt][1:i],:mhtot=>mhcnt[:tot][1:i],
-					   :rjtmhrej=>rjtcnt[:mhrjt][1:i],
-					   :rjtmhtot=>rjtcnt[:mhtot][1:i]);
+			dftemp = DataFrame(:mhrej=>mhcnt[:rjt][1:i],:mhtot=>mhcnt[:tot][1:i]);
 			CSV.write("RejStats.csv",dftemp);
 			mysaverng(rng);
 			println("$pos" *"/1 complete with MCMC samples ...")
@@ -590,15 +517,10 @@ function mcmcsmp(nsmp::Int64;
 	end
 
 	# Save chain parameter values to csv
-	println("Number of MH samples: $nMH");
-	println("Number of Gibbs samples: $nGibbs");
 	CSV.write("GibbsMCMC.csv", [DataFrame(:prm=>String.(vkeys)) DataFrame(SMP)], writeheader=false, append=false);
 	
 	# Save rejection statistics to csv
-	dftemp = DataFrame(:rjtrej=>rjtcnt[:rjt],:rjttot=>rjtcnt[:tot],
-			   :mhrej=>mhcnt[:rjt],:mhtot=>mhcnt[:tot],
-			   :rjtmhrej=>rjtcnt[:mhrjt],
-			   :rjtmhtot=>rjtcnt[:mhtot]);
+	dftemp = DataFrame(:mhrej=>mhcnt[:rjt],:mhtot=>mhcnt[:tot]);
 	CSV.write("RejStats.csv",dftemp);
 
 	# Save random number generator state
