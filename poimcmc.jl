@@ -451,7 +451,8 @@ mcmc sample the posterior distribution
 """
 function mcmcsmp(nsmp::Int64;
 		 rng::MersenneTwister=MersenneTwister(),
-		 flagrst::Bool=false)
+		 flagrst::Bool=false,
+		 ncyc::Int64=1)
 	prm,vkeys,V = wrtprm(); 
 	prmrg,prmvary = mcmcrg();
 	λval = Vector{Float64}(undef,Int64(prm[:nmax]));
@@ -484,35 +485,47 @@ function mcmcsmp(nsmp::Int64;
 	psymb = [Symbol(:p,i) for i=1:Int64(prm[:nmax])];
 
 	# run mcmc
-	pos = 0.0; Δprg = 0.02; nMH = 0; nGibbs = 0;
-	for i=1:nsmp
-		#  glbl propose and record rej stats
+	pos = 0.0; Δprg = 0.02;
+	gen=[1,0];
+	for k=1:nsmp*ncyc
+		# Cycle generator
+		if gen[2]!=ncyc
+			gen[2]+=1;
+		else
+			gen[1]+=1; gen[2]=1;
+		end
+		i=gen[1]; j=gen[2];
+
+		#  Set rejection counter to current position
+		mhcnt[:pos][1] = i;
+
+		#  propose
 		prp!(prm0,prm,prmrg,prmvary;λval=λval,rng=rng);
 
 		#  mh accept-reject
 		if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;λval=λval)
 			wrtprm!(prm,prm0);
 		else
+			wrtprm!(prm0,prm);
 			mhcnt[:rjt][mhcnt[:pos][1]]+=1;
 		end
 			mhcnt[:tot][mhcnt[:pos][1]]+=1;
+		
+		if j==ncyc
+			# Record the sample
+			P0 = @view SMP[:,i];
+			wrtprm!(prm0,vkeys,P0);
 
-		# Record the sample
-		P0 = @view SMP[:,i];
-		wrtprm!(prm0,vkeys,P0); wrtprm!(prm0,prm);
-
-		# Cycle rej stat tracker to next position
-		mhcnt[:pos][1] = i;
-
-		# Save partial progress
-		prg = i/nsmp;
-		if prg >= pos + Δprg
-			pos = floor(prg/Δprg)*Δprg;
-			CSV.write("GibbsMCMC.csv",[DataFrame(:prm=>String.(vkeys)) DataFrame(SMP[:,1:i])], writeheader=false,append=false);
-			dftemp = DataFrame(:mhrej=>mhcnt[:rjt][1:i],:mhtot=>mhcnt[:tot][1:i]);
-			CSV.write("RejStats.csv",dftemp);
-			mysaverng(rng);
-			println("$pos" *"/1 complete with MCMC samples ...")
+			# Save partial progress
+			prg = i/nsmp;
+			if prg >= pos + Δprg
+				pos = floor(prg/Δprg)*Δprg;
+				CSV.write("GibbsMCMC.csv",[DataFrame(:prm=>String.(vkeys)) DataFrame(SMP[:,1:i])], writeheader=false,append=false);
+				dftemp = DataFrame(:mhrej=>mhcnt[:rjt][1:i],:mhtot=>mhcnt[:tot][1:i]);
+				CSV.write("RejStats.csv",dftemp);
+				mysaverng(rng);
+				println("$pos" *"/1 complete with MCMC samples ...")
+			end
 		end
 	end
 
