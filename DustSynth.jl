@@ -5,11 +5,9 @@ using Distributed
 using Random
 Random.seed!(123);
 
-cd("C:\\Users\\matth\\Documents\\JuliaWD")
-
 function dust_ind(a, b, T, xi)
     theta = rand(Gamma(a,1/b))
-    nu = rand(Uniform(0,T))
+    nu = rand(Uniform(0,T)) 
     lambda = (1/2)*T*theta
     particles_tot = rand(Poisson(lambda))
     times = zeros(1, particles_tot)
@@ -48,11 +46,3 @@ function dust_n(n, a, b, T, xi)
     end
     return sum(total_dust)
 end
-
-
-data = zeros(1, 3)
-for k in 1:3
-    people[k] = dust_n(40, .01725, .00225, 7, .6931472)
-end
-
-writedlm("dust.csv", data, ',')

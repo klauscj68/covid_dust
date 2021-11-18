@@ -34,7 +34,7 @@ function data()
 	#  mean: α/β
 	#  var:  α/β^2
 	prm[:Γα] = 0.01725;
-	prm[:Γβ] = 0.002225;
+	prm[:Γβ] = 0.00225;
 
 	#  shedding amplitude
 	for i=1:nmax
@@ -109,7 +109,7 @@ function mcmcrg()
 	#  shedding amplitude
 	for i=1:nmax
 		sym = Symbol("A"*string(i));
-		prmrg[sym] = [0.0,750.0];
+		prmrg[sym] = [0.0,10000.0];
 		prmvary[sym] = true;
 	end
 
