@@ -204,16 +204,10 @@ Also include a mutating version of the dictionary case for mem alloc
 function shedλ(A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
 	       ξ::Float64)
 	# exported from Maple
-	#  Indicators
-	χ₁ = (t₀+Aₓ-T>=0); χ₂ = (Aₓ+t₀>=0);
+	cg = Aₓ; cg1 = L; cg3 = T; cg5 = t₀; xi = ξ;
 
-	λval = ( 
-		L*(χ₁-χ₂)*exp(ξ*(t₀+Aₓ-T)) +
-		L*(-ξ*Aₓ-1+(T-t₀)*ξ)*χ₁+
-	        exp(-ξ*T)*L*(ξ*Aₓ+ξ*t₀+1)*χ₂ -
-	        ( (ξ*L+ξ*t₀+1)*exp(-ξ*T)-ξ*L-1+(T-t₀)*ξ )*Aₓ
-	       )*A;
-	λval *= 1/( (L-Aₓ)*ξ^2*Aₓ );
+	λval = -A * (-cg1 * ((-cg3 + cg + cg5 < 0 ? 0 : 1) - (cg + cg5 < 0 ? 0 : 1)) * exp((xi * (-cg3 + cg + cg5))) + cg * ((-cg3 + cg1 + cg5 < 0.0e0 ? 0 : 1) - (cg1 + cg5 < 0.0e0 ? 0 : 1)) * exp(xi * (-cg3 + cg1 + cg5)) - (-xi * cg - 1 + (cg3 - cg5) * xi) * cg1 * (-cg3 + cg + cg5 < 0 ? 0 : 1) - cg * (xi * cg1 + 0.1e1 + ((-cg3 + cg5) * xi)) * (-cg3 + cg1 + cg5 < 0.0e0 ? 0 : 1) + (-cg1 * (xi * cg + xi * cg5 + 1) * (cg + cg5 < 0 ? 0 : 1) + cg * (cg1 + cg5 < 0.0e0 ? 0 : 1) * (xi * cg1 + (xi * cg5) + 0.1e1)) * exp(-(xi * cg3))) / (xi ^ 2) / (cg1 - cg) / cg;
+
 
 	return λval
 end

@@ -88,60 +88,43 @@
     <Task-category name="&lt;default&gt;"/>
 </Task-table>
 <Task/>
-<Group labelreference="L9" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
+<Group labelreference="L19" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
 <Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">with(CodeGeneration):</Text-field>
 </Input>
 </Group>
-<Group labelreference="L1" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
-<Input><Text-field style="Text" layout="Normal">Define shape function</Text-field>
-</Input>
-</Group>
-<Group hide-input="false" labelreference="L3" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
-<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">lambda := A-(2*A/L)*abs(L/2-t+t0)</Text-field>
-</Input>
-</Group>
-<Group labelreference="L6" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
-<Input><Text-field style="Text" layout="Normal">Compute integral</Text-field>
-</Input>
-</Group>
-<Group hide-input="false" labelreference="L7" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
-<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">int(lambda,t=0..T)</Text-field>
-</Input>
-</Group>
-<Group labelreference="L8" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
-<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">Julia(int(lambda,t=0..T),resultname=&quot;lambda&quot;,optimize)</Text-field>
-</Input>
-</Group>
-<Group labelreference="L10" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
-<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">Julia(int(lambda,t=0..T),resultname=&quot;lambda&quot;)</Text-field>
-</Input>
-</Group>
-<Group labelreference="L11" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
+<Group labelreference="L9" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
 <Input><Text-field style="Text" layout="Normal">Do a shedding curve triangle with variable peak, peak position and width</Text-field>
 </Input>
 </Group>
 <Group labelreference="L12" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
-<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">assume(Ax&gt;0,Ax&lt;=L,t0&lt;=0)</Text-field>
+<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">assume(Ax&gt;=0,Ax&lt;=L,t0&lt;=0,T&gt;0):</Text-field>
 </Input>
 </Group>
 <Group hide-input="false" labelreference="L13" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
-<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">lambda := piecewise(t&lt;=t0+Ax,A/Ax*(t-t0),t&gt;t0+Ax,-A/(L-Ax)*(t-t0-Ax)+A)</Text-field>
-</Input>
-</Group>
-<Group hide-input="false" labelreference="L14" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
-<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">integral := int(lambda,t=0..T)</Text-field>
-</Input>
-</Group>
-<Group hide-input="false" labelreference="L15" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
-<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">Julia(integral,resultname=&quot;lambda&quot;)</Text-field>
+<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">lambda := piecewise(t&lt;t0,0,
+                    And(t&gt;=t0,t&lt;=t0+Ax),A/Ax*(t-t0),
+                    And(t&gt;t0+Ax,t&lt;=t0+L),-A/(L-Ax)*(t-t0-Ax)+A,
+                    t&gt;t0+L,0)</Text-field>
 </Input>
 </Group>
 <Group hide-input="false" labelreference="L16" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
 <Input><Text-field style="Text" layout="Normal">Survival probability</Text-field><Text-field prompt="&gt; " style="Maple Input" layout="Normal">survint := simplify(int(exp(-xi*(T-t))*lambda,t=0..T))</Text-field>
 </Input>
 </Group>
-<Group labelreference="L17" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
-<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal"><Equation executable="true" style="2D Input" input-equation="" display="LUklbXJvd0c2Iy9JK21vZHVsZW5hbWVHNiJJLFR5cGVzZXR0aW5nR0koX3N5c2xpYkdGJzYlLUkjbWlHRiQ2I1EhRicvJStleGVjdXRhYmxlR1EmZmFsc2VGJy8lLG1hdGh2YXJpYW50R1Enbm9ybWFsRic=">JSFH</Equation></Text-field>
+<Group labelreference="L21" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
+<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">Matlab(survint,resultname=&quot;Int&quot;)</Text-field>
+</Input>
+</Group>
+<Group hide-input="false" labelreference="L17" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
+<Input><Text-field style="Text" layout="Normal">Survival probability when shedding is on a log-scale</Text-field><Text-field prompt="&gt; " style="Maple Input" layout="Normal">survintlog := simplify(int(exp(-xi*(T-t))*exp(lambda),t=0..T))</Text-field>
+</Input>
+</Group>
+<Group hide-input="false" labelreference="L18" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
+<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">Matlab(survintlog,resultname=&quot;IntLog&quot;)</Text-field>
+</Input>
+</Group>
+<Group labelreference="L20" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
+<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal"></Text-field>
 </Input>
 </Group>
 </Worksheet>
