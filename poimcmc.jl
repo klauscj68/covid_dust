@@ -33,8 +33,8 @@ function data()
 	# Γ(α,β) ~ β^α*x^{α-1}exp(-βx)/Γ(α)
 	#  mean: α/β
 	#  var:  α/β^2
-	prm[:Γα] = 0.01725;
-	prm[:Γβ] = 0.00225;
+	prm[:Γα] = 0.015;
+	prm[:Γβ] = 0.00875;
 
 	#  shedding amplitude
 	for i=1:nmax
@@ -55,7 +55,7 @@ function data()
 	end
 
 	# particle decay rate
-	prm[:ξ] = log(2);
+	prm[:ξ] = log(2)/7;
 
 	# Time after time 0 at which dust collected
 	prm[:T] = 7.0;
