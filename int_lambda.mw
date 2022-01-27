@@ -97,7 +97,7 @@
 </Input>
 </Group>
 <Group labelreference="L12" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">
-<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">assume(Ax&gt;=0,Ax&lt;=L,t0&lt;=0,T&gt;0):</Text-field>
+<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">assume(Ax&gt;=0,Ax&lt;=L,T&gt;0,L&gt;0,A&gt;0):</Text-field>
 </Input>
 </Group>
 <Group hide-input="false" labelreference="L13" drawlabel="true" applyint="true" applyrational="true" applyexponent="false">

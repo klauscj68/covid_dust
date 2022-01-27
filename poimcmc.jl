@@ -39,7 +39,7 @@ function data()
 	#  shedding amplitude
 	for i=1:nmax
 		sym = Symbol("A"*string(i));
-		prm[sym] = 1.0;
+		prm[sym] = 1.7142857;
 	end
 
 	#  shedding amplitude position
@@ -197,17 +197,16 @@ end
 
 # shedλ
 """
-Compute the shedding ∫ᵀ₀exp[-ξ*(T-t)]λ(t-t₀;θ)dt as function of input parameters
-Multiple dispatch for case of single param values and a dictionary.
-Also include a mutating version of the dictionary case for mem alloc
+Compute the shedding μp = ∫ᵀ₀exp[-ξ*(T-t)]λ(t-t₀;θ)dt as function of input 
+parameters. Multiple dispatch for case of single param values and a dictionary.
+Also include a mutating version of the dictionary case for mem alloc.
 """
 function shedλ(A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
 	       ξ::Float64)
 	# exported from Maple
-	cg = Aₓ; cg1 = L; cg3 = T; cg5 = t₀; xi = ξ;
+	cg = Aₓ; cg1 = A; cg3 = L; cg5 = T; xi = ξ; t0 = t₀;
 
-	λval = -A * (-cg1 * ((-cg3 + cg + cg5 < 0 ? 0 : 1) - (cg + cg5 < 0 ? 0 : 1)) * exp((xi * (-cg3 + cg + cg5))) + cg * ((-cg3 + cg1 + cg5 < 0.0e0 ? 0 : 1) - (cg1 + cg5 < 0.0e0 ? 0 : 1)) * exp(xi * (-cg3 + cg1 + cg5)) - (-xi * cg - 1 + (cg3 - cg5) * xi) * cg1 * (-cg3 + cg + cg5 < 0 ? 0 : 1) - cg * (xi * cg1 + 0.1e1 + ((-cg3 + cg5) * xi)) * (-cg3 + cg1 + cg5 < 0.0e0 ? 0 : 1) + (-cg1 * (xi * cg + xi * cg5 + 1) * (cg + cg5 < 0 ? 0 : 1) + cg * (cg1 + cg5 < 0.0e0 ? 0 : 1) * (xi * cg1 + (xi * cg5) + 0.1e1)) * exp(-(xi * cg3))) / (xi ^ 2) / (cg1 - cg) / cg;
-
+	λval = -(-(t0 < 0 ? 0.0 : -exp(-(xi * (cg5 - t0))) * cg) - (t0 < 0 ? 0.0 : exp(-(xi * (cg5 - t0))) * cg3) - (t0 < 0 ? 0.0 : -exp(-(xi * cg5)) * t0 * xi * cg3) - (t0 < 0 ? 0.0 : exp(-(xi * cg5)) * t0 * xi * cg) - (t0 < 0 ? 0.0 : -exp(-(xi * cg5)) * cg3) - (t0 < 0 ? 0.0 : exp(-(xi * cg5)) * cg) + (cg3 * (cg + t0 < 0 ? 0.0 : 1.0) - (-cg5 + cg + t0 < 0.0e0 ? 0.0 : 1.0) * cg3) * exp(xi * (-cg5 + cg + t0)) + ((-cg5 + cg3 + t0 < 0.0e0 ? 0.0 : 1.0) * cg - (cg3 + t0 < 0.0e0 ? 0.0 : 1.0) * cg) * exp(xi * (-cg5 + cg3 + t0)) + (cg3 - cg) * (t0 - cg5 < 0 ? 0.0 : 1.0) * exp(-(xi * (cg5 - t0))) + (cg3 * xi * cg + (1 + xi * (t0 - cg5)) * cg3) * (-cg5 + cg + t0 < 0.0e0 ? 0.0 : 1.0) + (-cg3 * xi - 0.1e1 + (xi * (cg5 - t0))) * cg * (-cg5 + cg3 + t0 < 0.0e0 ? 0.0 : 1.0) + ((1 + xi * (t0 - cg5)) * cg + (-1 + xi * (cg5 - t0)) * cg3) * (t0 - cg5 < 0 ? 0.0 : 1.0) + (-cg3 * xi * cg + (-xi * t0 - 1) * cg3) * exp(-(xi * cg5)) * (cg + t0 < 0.0e0 ? 0.0 : 1.0) + (cg3 * xi + (xi * t0) + 0.1e1) * cg * exp(-(xi * cg5)) * (cg3 + t0 < 0.0e0 ? 0.0 : 1.0)) * cg1 / (xi ^ 2) / (cg3 - cg) / cg;
 
 	return λval
 end
