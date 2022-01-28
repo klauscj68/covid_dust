@@ -262,7 +262,7 @@ flagλval:: Bool saying if λval has already been evaluated for this param
 function logπ!(prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
-	       flagλval::Bool=true)
+	       flagλval::Bool=true)	
 	
 	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
 	# Indicator prior on all params save shedding amplitudes A
@@ -271,7 +271,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 			return -Inf
 		end
 	end
-
+	
 	#  Indicator for Aₓ<=L
 	if prmvary[Symbol(:Aₓ1)]
 		for i=1:nmax
@@ -282,7 +282,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 			end
 		end
 	end
-
+	
 	#  Indicator for t₀<=T
 	if prmvary[Symbol(:t1)]
 		for i=1:nmax
@@ -292,24 +292,25 @@ function logπ!(prm::Dict{Symbol,Float64},
 			end
 		end
 	end
-
+	
 	# Priors on shedding amplitude conditioned on Γα,Γβ
-	val = 0.0;
+	val1 = 0.0;
 	for i=1:nmax
 		Ai = Symbol(:A,i);
-		val += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
+		val1 += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
 	end
 
 	# Likelihood
 	if flagλval
 		shedλ!(prm;λval=λval);
 	end
+	val2 = 0.0;
 	for i=1:n
-		val += λval[i];
+		val2 += λval[i];
 	end
-	val = -val + floor(prm[:Y])*log(val);	
+	val2 = -val2 + floor(prm[:Y])*log(val2);	
 	
-	return val
+	return val1+val2
 end
 
 # prp!
@@ -419,7 +420,6 @@ function init!(prm::Dict{Symbol,Float64},
 	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
 	       rng::MersenneTwister=MersenneTwister())
 	flagfd = false;
-
 	while !flagfd
 		for key in keys(prmvary)
 			if prmvary[key]
@@ -428,7 +428,13 @@ function init!(prm::Dict{Symbol,Float64},
 					                                     );
 			end
 		end
-
+		if prmvary[:Aₓ1]
+			for i=1:Int64(prm[:nmax])
+				Axi = Symbol(:Aₓ,i); Li = Symbol(:L,i);
+				prm[Axi] = prmrg[Axi][1]+rand(rng)*(prm[Li]-prmrg[Axi][1]);
+			end
+		end
+		
 		if logπ!(prm,prmrg,prmvary;λval=λval) != -Inf
 			flagfd = true;
 		end
@@ -492,7 +498,8 @@ Run Metropolis-Hastings MCMC on dust measurement
 function mcmcrun(nsmp::Int64;
 		 rng::MersenneTwister=MersenneTwister(),
 		 flagrst::Bool=false,
-		 ncyc::Int64=1)
+		 ncyc::Int64=1,
+		 Δprg::Float64=0.05)
 
 	prmrg,prmvary = mcmcrg();
 	# Initialize based on whether restarting from previous mcmc run
@@ -517,8 +524,9 @@ function mcmcrun(nsmp::Int64;
 	mhrej = Vector{Int64}(undef,nsmp);
 
 	# run mcmc
-	prg = 0.0; Δprg = 0.02;
+	prg = 0.0;
 	for i=1:nsmp
+		
 		mhrej[i] = mcmcsmp!(prm0,prm,prmrg,prmvary;
 			            λval=λval,rng=rng,ncyc=ncyc);
 		smp = @view SMP[:,i];
@@ -528,17 +536,17 @@ function mcmcrun(nsmp::Int64;
 			println("Progress through mcmc: $prg/1 ...");
 			CSV.write("MCMCsmp.csv",[DataFrame(:prm=>String.(vkeys)) DataFrame(SMP[:,1:i])], writeheader=false,append=false);
 			CSV.write("rejstats.csv",DataFrame(:rejct=>mhrej));
-			mysave(rng);
+			mysaverng(rng);
 			prg+=Δprg;
 		end
 	end
 
 	# Save final csv and report rejection rates
 	CSV.write("MCMCsmp.csv",[DataFrame(:prm=>String.(vkeys)) DataFrame(SMP[:,1:nsmp])], writeheader=false,append=false);
-	CSV.write("rejstats.csv",DataFrame(:rejct=>mhrej));
-	mysave(rng);
+	CSV.write("rejstats.csv",DataFrame(:rejct=>mhrej),append=false);
+	mysaverng(rng);
 
-	rejrt = sum(mhrej)/(ncyc*nsmp); aptrt = 1-rejrt; acptwt = 1/aptrt;
+	rejrt = sum(mhrej)/(ncyc*nsmp); aptrt = 1-rejrt; aptwt = 1/aptrt;
 	println("Rejection rate: $rejrt");
-	println("Average num proposals before an accept: $aptrt");
+	println("Average num proposals before an accept: $aptwt");
 end;
