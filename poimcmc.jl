@@ -100,11 +100,13 @@ function mcmcrg()
 	#  shedding amplitude
 	for i=1:nmax
 		sym = Symbol("A"*string(i));
-		prmrg[sym] = [0.0,10000.0];
+		prmrg[sym] = [0.0,Inf];
 		prmvary[sym] = true;
 	end
 
 	#  shedding amplitude position
+	#   presently prp! uses a Unif(Tri) for LxAx and could
+	#   have problem if L is varied while Ax is not
 	for i=1:nmax
 		sym = Symbol("Aₓ"*string(i));
 		prmrg[sym] = [0.0,7.0];
@@ -257,29 +259,41 @@ function logπ!(prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
 	       flagλval::Bool=true)
-	# Bounding box prior should expand prior to require Aₓ<=L
+	
+	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+	# Indicator prior on all params save shedding amplitudes A
 	for key in keys(prmvary)
-		if prmvary[key]&&( sum( (prm[key]<prmrg[key][1])+(prm[key]>prmrg[key][2]) ) !=0 )
+		if prmvary[key]&&( (prm[key]<prmrg[key][1])||(prm[key]>prmrg[key][2]) )
 			return -Inf
 		end
 	end
 
-	# Likelihood
-	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+	# Indicator for Aₓ<=L
+	if prmvary[Symbol(:Aₓ1)]
+		for i=1:nmax
+			Ai = Symbol(:Aₓ,i);
+			Li = Symbol(:L,i);
+			if prm[Ai]>prm[Li]
+				return -Inf
+			end
+		end
+	end
+
+	# Priors on shedding amplitude conditioned on Γα,Γβ
 	val = 0.0;
+	for i=1:nmax
+		Ai = Symbol(:A,i);
+		val += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
+	end
+
+	# Likelihood
 	if flagλval
 		shedλ!(prm;λval=λval);
 	end
 	for i=1:n
 		val += λval[i];
 	end
-	val = -val + floor(prm[:Y])*log(val);
-
-	# Priors on shedding amplitude
-	for i=1:nmax
-		Ai = Symbol(:A,i);
-		val += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
-	end
+	val = -val + floor(prm[:Y])*log(val);	
 	
 	return val
 end
@@ -294,6 +308,28 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		  rng::MersenneTwister=MersenneTwister(),
 		  key::Symbol=:ALL,
 		  uenv::Float64=1.0)
+	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+	# Joint prp density of L x Ax is a unif triangle
+	if prmvary[:L1]
+		for i=1:nmax
+			Li = Symbol(:L,i);
+			prm[Li] = prmrg[Li][1]+rand(rng)*(prmrg[Li][2]-prmrg[Li][1]);
+		end
+	end
+
+	if prmvary[:Aₓ1]
+		for i=1:nmax
+			Axi = Symbol(:Aₓ,i); Li = Symbol(:L,i);
+			prm[Axi] = rand(rng)*prm[Li];
+		end
+	end
+	
+	# prp density on n unif
+	if prmvary[:n]
+		prm[:n] = prmrg[:n][1]+rand(rng)*(prmrg[:n][2]-prmrg[:n][1])
+	end
+	
+	# prp density on Gamma hypers is random walk
 	if prmvary[:Γα]
 		ΔΓα = 0.02*(prmrg[:Γα][2]-prmrg[:Γα][1]);
 		prm[:Γα] = prm0[:Γα] + Δα*randn(rng);
@@ -314,7 +350,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		return
 	end
 
-	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+	# prp density of amplitudes conditioned on hypers is Gammas
 	if prmvary[:A1]
 		Γdistr = Gamma(prm[:Γα],1/prm[:Γβ]);
 		for i=1:nmax
@@ -322,31 +358,14 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 			prm[Ai] = rand(rng,Γdistr);
 		end
 	end
-
-	if prmvary[:Aₓ1]
-		for i=1:nmax
-			Axi = Symbol(:Aₓ,i);
-			prm[Axi] = prmrg[Axi][1]+rand(rng)*(prmrg[Axi][2]-prmrg[Axi][1]);
-		end
-	end
-
-	if prmvary[:L1]
-		for i=1:nmax
-			Li = Symbol(:L,i);
-			prm[Li] = prmrg[Li][1]+rand(rng)*(prmrg[Li][2]-prmrg[Li][1]);
-		end
-	end
-
-	if prmvary[:n]
-		prm[:n] = prmrg[:n][1]+rand(rng)*(prmrg[:n][2]-prmrg[:n][1])
-	end
-
 end
 
 # logρ!
 """
-Evaluate the log unnormalized proposal density ρ(y|x)
-for the subset of parameters being varied
+Evaluate the log unnormalized proposal density ρ(y|x) needed in mhratio
+for the subset of parameters being varied. Only Gamma's tracked bc the unif's
+in proposal density take same values all x ind of y and the random walk only
+depends on |x-y| which is same y|x and x|y
 """
 function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
@@ -380,7 +399,7 @@ function init!(prm::Dict{Symbol,Float64},
 		for key in keys(prmvary)
 			if prmvary[key]
 				prm[key] = prmrg[key][1] .+ rand(rng)*(
-					           prmrg[key][2]-prmrg[key][1]
+						prmrg[key][2]-prmrg[key][1] < Inf ? prmrg[key][2]-prmrg[key][1] : 1000.0
 					                                     );
 			end
 		end
