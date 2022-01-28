@@ -85,8 +85,9 @@ function mcmcrg()
 	# individual infection times
 	for i=1:nmax
 		sym = Symbol("t"*string(i));
-		prmrg[sym] = [-7.0,7.0];
-		prmvary[sym] = false;
+		prmrg[sym] = [-3.0,7.0]; # max t₀ should be less than the fixed T-value
+					 # for efficient sampling
+		prmvary[sym] = true;
 	end
 
 	# λ-params # maybe 50% pickup in dorms by vacuum
@@ -106,10 +107,12 @@ function mcmcrg()
 
 	#  shedding amplitude position
 	#   presently prp! uses a Unif(Tri) for LxAx and could
-	#   have problem if L is varied while Ax is not
+	#   have problem if L is varied while Ax is not. Similarly
+	#   min permitted value of Ax should be <= min permitted
+	#   value of L
 	for i=1:nmax
 		sym = Symbol("Aₓ"*string(i));
-		prmrg[sym] = [0.0,7.0];
+		prmrg[sym] = [0.0,14.0];
 		prmvary[sym] = true;
 	end
 
@@ -117,7 +120,7 @@ function mcmcrg()
 	for i=1:nmax
 		sym = Symbol("L"*string(i));
 		prmrg[sym] = [7.0,14.0];
-		prmvary[sym] = false;
+		prmvary[sym] = true;
 	end
 
 	# particle decay rate
@@ -126,11 +129,11 @@ function mcmcrg()
 
 	# Time after time 0 at which dust is collected
 	prmrg[:T] = [5.0,10.0];
-	prmvary[:T] = false;
+	prmvary[:T] = false; # Current code needs false because prp doesn't vary
 
 	# dust measurement copies/mg dust
 	prmrg[:Y] = [0.0,1000.0]; # with Delta numbers over 1000 can go up to 10,000
-	prmvary[:Y] = false;
+	prmvary[:Y] = false; # Current code needs false becase prp doesn't vary
 
 	return prmrg,prmvary
 end
@@ -196,15 +199,16 @@ function shedλ(A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
 	       ξ::Float64)
 	a1 = 0.0 >= t₀ ? 0.0 : t₀; b1 = T <= Aₓ+t₀ ? T : Aₓ+t₀;
 	a2 = 0.0 >= Aₓ+t₀ ? 0.0 : Aₓ+t₀; b2 = T <= L+t₀ ? T : L+t₀;
+	lnA = log(A);
 
-	# ∫_{[0,T]∩[t₀,Aₓ+t₀]}exp(-ξ(T-t))(A*(t-t₀)/Aₓ)dt
+	# ∫_{[0,T]∩[t₀,Aₓ+t₀]}exp(-ξ(T-t))exp(A*(t-t₀)/Aₓ)dt
 	I₁ = ( (a1>=b1)||(Aₓ==0.0) ? 
-	         0.0 : 1/ξ*exp(ξ*(b1-T))*A*(b1-t₀)/Aₓ - 1/ξ*exp(ξ*(a1-T))*A*(a1-t₀)/Aₓ - 1/ξ^2*(A/Aₓ)*(exp(ξ*(b1-T))-exp(ξ*(a1-T)))
+	      0.0 : exp(-ξ*T-lnA/Aₓ*t₀)*1/(ξ+lnA/Aₓ)*( exp((ξ+lnA/Aₓ)*b1)-exp((ξ+lnA/Aₓ)*a1) ) 
 	     );
 
-	# ∫_{[0,T]∩[Aₓ+t₀,L+t₀]}exp(-ξ(T-t))(A-A*(t-t₀-Aₓ)/(L-Aₓ))dt
+	# ∫_{[0,T]∩[Aₓ+t₀,L+t₀]}exp(-ξ(T-t))exp(A-A*(t-t₀-Aₓ)/(L-Aₓ))dt
 	I₂ = ( (a2>=b2)||(L==Aₓ) ?
-	        0.0 : 1/ξ*exp(ξ*(b2-T))*(A-A*(b2-t₀-Aₓ)/(L-Aₓ)) - 1/ξ*exp(ξ*(a2-T))*(A-A*(a2-t₀-Aₓ)/(L-Aₓ)) + 1/ξ^2*(A/(L-Aₓ))*(exp(ξ*(b2-T))-exp(ξ*(a2-T)))
+	      0.0 : exp(-ξ*T+lnA+lnA/(L-Aₓ)*(t₀+Aₓ))*1/(ξ-lnA/(L-Aₓ))*( exp((ξ-lnA/(L-Aₓ))*b2)-exp((ξ-lnA/(L-Aₓ))*a2)  )  
 	     );
 
 	return I₁+I₂
@@ -268,12 +272,22 @@ function logπ!(prm::Dict{Symbol,Float64},
 		end
 	end
 
-	# Indicator for Aₓ<=L
+	#  Indicator for Aₓ<=L
 	if prmvary[Symbol(:Aₓ1)]
 		for i=1:nmax
 			Ai = Symbol(:Aₓ,i);
 			Li = Symbol(:L,i);
 			if prm[Ai]>prm[Li]
+				return -Inf
+			end
+		end
+	end
+
+	#  Indicator for t₀<=T
+	if prmvary[Symbol(:t1)]
+		for i=1:nmax
+			ti = Symbol(:t,i);
+			if prm[ti]>prm[:T]
 				return -Inf
 			end
 		end
@@ -305,11 +319,9 @@ Metropolis proposal function
 function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		  prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
-		  rng::MersenneTwister=MersenneTwister(),
-		  key::Symbol=:ALL,
-		  uenv::Float64=1.0)
+		  rng::MersenneTwister=MersenneTwister())
 	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
-	# Joint prp density of L x Ax is a unif triangle
+	# Joint prp density of L x Ax is a unif trapezoid, so propto indicator
 	if prmvary[:L1]
 		for i=1:nmax
 			Li = Symbol(:L,i);
@@ -320,7 +332,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	if prmvary[:Aₓ1]
 		for i=1:nmax
 			Axi = Symbol(:Aₓ,i); Li = Symbol(:L,i);
-			prm[Axi] = rand(rng)*prm[Li];
+			prm[Axi] = prmrg[Axi][1] + rand(rng)*(prm[Li]-prmrg[Axi][1]);
 		end
 	end
 	
@@ -328,7 +340,20 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	if prmvary[:n]
 		prm[:n] = prmrg[:n][1]+rand(rng)*(prmrg[:n][2]-prmrg[:n][1])
 	end
+
+	# prp density on t₀'s is unif
+	if prmvary[:t1]
+		for i=1:nmax
+			ti = Symbol(:t,i);
+			prm[ti] = prmrg[ti][1]+rand(rng)*(prmrg[ti][2]-prmrg[ti][1]);
+		end
+	end
 	
+	# prp density on ξ is uniform
+	if prmvary[:ξ]
+		prm[:ξ] = prmrg[:ξ][1]+rand(rng)*(prmrg[:ξ][2]-prmrg[:ξ][1]);
+	end
+
 	# prp density on Gamma hypers is random walk
 	if prmvary[:Γα]
 		ΔΓα = 0.02*(prmrg[:Γα][2]-prmrg[:Γα][1]);
@@ -342,7 +367,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 
 	# Patched MH rejection
 	#  Point is if alpha and beta aren't in cnst reg, the chain automatically rejects prm
-	#  and resets to prm0. Used since nonpositive values cause Gamma sampling to fail.
+	#  and resets to prm0. Used Julia wont sample a Gamma with nonpositive hyperparams
 	if (prm[:Γα]<=0)||(prm[:Γβ]<=0)
 		for key in keys(prm0)	
 			prm[key] = prm0[key];
@@ -350,7 +375,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		return
 	end
 
-	# prp density of amplitudes conditioned on hypers is Gammas
+	# prp density of amplitudes conditioned on hypers is Gamma
 	if prmvary[:A1]
 		Γdistr = Gamma(prm[:Γα],1/prm[:Γβ]);
 		for i=1:nmax
@@ -416,7 +441,6 @@ Compute the log Metropolis-Hastings acceptance ratio
 """
 function logmh!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
-	        flagcase::Symbol=:glbl,
 	        λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])))
 	
 	# stationary distribution
@@ -430,100 +454,91 @@ function logmh!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	return val
 end
 
-# mcmcsmp
+# mcmcsmp!
 """
-mcmc sample the posterior distribution
+Run a single sample of the mcmc kernel. Routine allows for optionally cycling
+the MH kernel a fixed number of times. Store eventual output to prm0 while 
+writing proposals to prm. Returns the number of rejections.
 """
-function mcmcsmp(nsmp::Int64;
+function mcmcsmp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
+	          prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
+		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm0[:nmax])),
+		  rng::MersenneTwister=MersenneTwister(),
+		  ncyc::Int64=1)
+	nrej = 0;
+	for i=1:ncyc
+		prp!(prm0,prm,prmrg,prmvary;λval=λval,rng=rng)
+
+		coin = rand(rng) |> log;
+		if coin <=logmh!(prm0,prm,prmrg,prmvary;λval=λval)
+			# accept
+			for key in keys(prm0)
+				if prmvary[key]
+					prm0[key] = prm[key];
+				end
+			end
+		else
+			# reject
+			nrej += 1;
+		end
+	end
+	return nrej
+end
+
+# mcmcrun
+"""
+Run Metropolis-Hastings MCMC on dust measurement
+"""
+function mcmcrun(nsmp::Int64;
 		 rng::MersenneTwister=MersenneTwister(),
 		 flagrst::Bool=false,
 		 ncyc::Int64=1)
-	prm,vkeys,V = wrtprm(); 
-	prmrg,prmvary = mcmcrg();
-	λval = Vector{Float64}(undef,Int64(prm[:nmax]));
-	
-	if flagrst
-		# restart sampling from csv
-		df0 = CSV.read("GibbsMCMC.csv",DataFrame,header=false);
-		vkeys = Symbol.(df0[:,1]); V = df0[:,end];
-		prm0,_ = rdprm(V,vkeys); prm = deepcopy(prm0); 
-		rng = myloadrng();
 
-		df0 = similar(df0,0);
-	else
+	prmrg,prmvary = mcmcrg();
+	# Initialize based on whether restarting from previous mcmc run
+	if !flagrst
+		prm,vkeys,V=wrtprm();
+		λval = Vector{Float64}(undef,Int64(prm[:nmax]));
 		init!(prm,prmrg,prmvary;λval=λval,rng=rng);
-		prm0 = deepcopy(prm);
+
+		prm0 = deepcopy(prm);	
+	else
+		df0 = CSV.read("MCMCsmp.csv",DataFrame);
+		vkeys = Symbol.(df0[:,1]); V = df0[:,end];
+		prm0,_ = rdprm(V,vkeys); prm = deepcopy(prm0);
+		rng = myloadrng();
+      	        λval = Vector{Float64}(undef,Int64(prm[:nmax]));
 	end
 
 	# Create matrix for samples
 	SMP = Matrix{Float64}(undef,length(V),nsmp);
 
-	# Create vectors for storing rejection statistics	
-	mhcnt = Dict{Symbol,Vector{Int64}}(:pos=>[1],:rjt=>fill(0,nsmp),
-					   :tot=>fill(0,nsmp));
-
-	# Preallocate vectors for prm symb's that aren't used in likelihood
-	# due to varying number of indiv's. Used in computing rej stats.
-	Asymb = [Symbol(:A,i) for i=1:Int64(prm[:nmax])];
-	Aₓsymb = [Symbol(:Aₓ,i) for i=1:Int64(prm[:nmax])];
-	Lsymb = [Symbol(:L,i) for i=1:Int64(prm[:nmax])];
-	psymb = [Symbol(:p,i) for i=1:Int64(prm[:nmax])];
+	# Create a vector for storing rejection statistics
+	mhrej = Vector{Int64}(undef,nsmp);
 
 	# run mcmc
-	pos = 0.0; Δprg = 0.02;
-	gen=[1,0];
-	for k=1:nsmp*ncyc
-		# Cycle generator
-		if gen[2]!=ncyc
-			gen[2]+=1;
-		else
-			gen[1]+=1; gen[2]=1;
-		end
-		i=gen[1]; j=gen[2];
+	prg = 0.0; Δprg = 0.02;
+	for i=1:nsmp
+		mhrej[i] = mcmcsmp!(prm0,prm,prmrg,prmvary;
+			            λval=λval,rng=rng,ncyc=ncyc);
+		smp = @view SMP[:,i];
+		wrtprm!(prm0,vkeys,smp);
 
-		#  Set rejection counter to current position
-		mhcnt[:pos][1] = i;
-
-		#  propose
-		prp!(prm0,prm,prmrg,prmvary;λval=λval,rng=rng);
-
-		#  mh accept-reject
-		if log(rand(rng)) < logmh!(prm0,prm,prmrg,prmvary;λval=λval)
-			wrtprm!(prm,prm0);
-		else
-			wrtprm!(prm0,prm);
-			mhcnt[:rjt][mhcnt[:pos][1]]+=1;
-		end
-			mhcnt[:tot][mhcnt[:pos][1]]+=1;
-		
-		if j==ncyc
-			# Record the sample
-			P0 = @view SMP[:,i];
-			wrtprm!(prm0,vkeys,P0);
-
-			# Save partial progress
-			prg = i/nsmp;
-			if prg >= pos + Δprg
-				pos = floor(prg/Δprg)*Δprg;
-				CSV.write("GibbsMCMC.csv",[DataFrame(:prm=>String.(vkeys)) DataFrame(SMP[:,1:i])], writeheader=false,append=false);
-				dftemp = DataFrame(:mhrej=>mhcnt[:rjt][1:i],:mhtot=>mhcnt[:tot][1:i]);
-				CSV.write("RejStats.csv",dftemp);
-				mysaverng(rng);
-				println("$pos" *"/1 complete with MCMC samples ...")
-			end
+		while i/nsmp>=prg+Δprg
+			println("Progress through mcmc: $prg/1 ...");
+			CSV.write("MCMCsmp.csv",[DataFrame(:prm=>String.(vkeys)) DataFrame(SMP[:,1:i])], writeheader=false,append=false);
+			CSV.write("rejstats.csv",DataFrame(:rejct=>mhrej));
+			mysave(rng);
+			prg+=Δprg;
 		end
 	end
 
-	# Save chain parameter values to csv
-	CSV.write("GibbsMCMC.csv", [DataFrame(:prm=>String.(vkeys)) DataFrame(SMP)], writeheader=false, append=false);
-	
-	# Save rejection statistics to csv
-	dftemp = DataFrame(:mhrej=>mhcnt[:rjt],:mhtot=>mhcnt[:tot]);
-	CSV.write("RejStats.csv",dftemp);
+	# Save final csv and report rejection rates
+	CSV.write("MCMCsmp.csv",[DataFrame(:prm=>String.(vkeys)) DataFrame(SMP[:,1:nsmp])], writeheader=false,append=false);
+	CSV.write("rejstats.csv",DataFrame(:rejct=>mhrej));
+	mysave(rng);
 
-	# Save random number generator state
-	mysaverng(rng);
-
-
-	return SMP
-end
+	rejrt = sum(mhrej)/(ncyc*nsmp); aptrt = 1-rejrt; acptwt = 1/aptrt;
+	println("Rejection rate: $rejrt");
+	println("Average num proposals before an accept: $aptrt");
+end;
