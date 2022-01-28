@@ -12,12 +12,8 @@ Return dictionary with default parameter values
 function data()
 	prm = Dict{Symbol,Float64}();
 	
-	# cap of fall iso and number of infected people in building
-	#  Should be strictly more than niso + n
-	prm[:nmax] = 101.0; nmax = Int64(prm[:nmax]);
-
-	# number of people in iso
-	prm[:niso] = 1.0;
+	# cap number of infected people in building
+	prm[:nmax] = 100.0; nmax = Int64(prm[:nmax]);
 
 	# number of infected people in the building
 	prm[:n] = 10.0;
@@ -62,7 +58,6 @@ function data()
 
 	# dust measurement copies/mg dust
 	prm[:Y] = 144.0;
-	prm[:Yiso] = 172.0;
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
@@ -82,10 +77,6 @@ function mcmcrg()
 	prmrg[:nmax] = [100.0,101.0]; nmax = Int64(prmrg[:nmax][2]);
 	prmvary[:nmax] = false;
 
-	# number of people in iso
-	prmrg[:niso] = [39.0,40.0];
-	prmvary[:niso] = false;
-
 	# number of infected people in the building
 	#  bound by nmax enforced in prior
 	prmrg[:n] = [1.0,100.0]; # For rej stats have be 1 less than nmax
@@ -94,7 +85,7 @@ function mcmcrg()
 	# individual infection times
 	for i=1:nmax
 		sym = Symbol("t"*string(i));
-		prmrg[sym] = [-14.0,0.0];
+		prmrg[sym] = [-7.0,7.0];
 		prmvary[sym] = false;
 	end
 
@@ -138,9 +129,6 @@ function mcmcrg()
 	# dust measurement copies/mg dust
 	prmrg[:Y] = [0.0,1000.0]; # with Delta numbers over 1000 can go up to 10,000
 	prmvary[:Y] = false;
-
-	prmrg[:Yiso] = [172.0,173.0];
-	prmvary[:Yiso] = false;
 
 	return prmrg,prmvary
 end
@@ -199,27 +187,25 @@ end
 """
 Compute the shedding μp = ∫ᵀ₀exp[-ξ*(T-t)]λ(t-t₀;θ)dt as function of input 
 parameters. Multiple dispatch for case of single param values and a dictionary.
-Also include a mutating version of the dictionary case for mem alloc.
+Also include a mutating version of the dictionary case for mem alloc. Right now
+routine can handle Aₓ=0 or L but not ξ=0.
 """
 function shedλ(A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
 	       ξ::Float64)
-	# exported from Maple
-	cg = Aₓ; cg1 = A; cg3 = L; cg5 = T; xi = ξ; t0 = t₀;
+	a1 = 0.0 >= t₀ ? 0.0 : t₀; b1 = T <= Aₓ+t₀ ? T : Aₓ+t₀;
+	a2 = 0.0 >= Aₓ+t₀ ? 0.0 : Aₓ+t₀; b2 = T <= L+t₀ ? T : L+t₀;
 
-	λval = -(-(t0 < 0 ? 0.0 : -exp(-(xi * (cg5 - t0))) * cg) - (t0 < 0 ? 0.0 : exp(-(xi * (cg5 - t0))) * cg3) - (t0 < 0 ? 0.0 : -exp(-(xi * cg5)) * t0 * xi * cg3) - (t0 < 0 ? 0.0 : exp(-(xi * cg5)) * t0 * xi * cg) - (t0 < 0 ? 0.0 : -exp(-(xi * cg5)) * cg3) - (t0 < 0 ? 0.0 : exp(-(xi * cg5)) * cg) + (cg3 * (cg + t0 < 0 ? 0.0 : 1.0) - (-cg5 + cg + t0 < 0.0e0 ? 0.0 : 1.0) * cg3) * exp(xi * (-cg5 + cg + t0)) + ((-cg5 + cg3 + t0 < 0.0e0 ? 0.0 : 1.0) * cg - (cg3 + t0 < 0.0e0 ? 0.0 : 1.0) * cg) * exp(xi * (-cg5 + cg3 + t0)) + (cg3 - cg) * (t0 - cg5 < 0 ? 0.0 : 1.0) * exp(-(xi * (cg5 - t0))) + (cg3 * xi * cg + (1 + xi * (t0 - cg5)) * cg3) * (-cg5 + cg + t0 < 0.0e0 ? 0.0 : 1.0) + (-cg3 * xi - 0.1e1 + (xi * (cg5 - t0))) * cg * (-cg5 + cg3 + t0 < 0.0e0 ? 0.0 : 1.0) + ((1 + xi * (t0 - cg5)) * cg + (-1 + xi * (cg5 - t0)) * cg3) * (t0 - cg5 < 0 ? 0.0 : 1.0) + (-cg3 * xi * cg + (-xi * t0 - 1) * cg3) * exp(-(xi * cg5)) * (cg + t0 < 0.0e0 ? 0.0 : 1.0) + (cg3 * xi + (xi * t0) + 0.1e1) * cg * exp(-(xi * cg5)) * (cg3 + t0 < 0.0e0 ? 0.0 : 1.0)) * cg1 / (xi ^ 2) / (cg3 - cg) / cg;
+	# ∫_{[0,T]∩[t₀,Aₓ+t₀]}exp(-ξ(T-t))(A*(t-t₀)/Aₓ)dt
+	I₁ = ( (a1>=b1)||(Aₓ==0.0) ? 
+	         0.0 : 1/ξ*exp(ξ*(b1-T))*A*(b1-t₀)/Aₓ - 1/ξ*exp(ξ*(a1-T))*A*(a1-t₀)/Aₓ - 1/ξ^2*(A/Aₓ)*(exp(ξ*(b1-T))-exp(ξ*(a1-T)))
+	     );
 
-	return λval
-end
-function shedλ(prm::Dict{Symbol,Float64})
-	λval = Vector{Float64}(undef,Int64(prm[:nmax]));
-	for i=1:Int64(prm[:nmax])
-		λval[i] = shedλ(prm[Symbol(:A,i)],prm[Symbol(:L,i)],
-				prm[Symbol(:t,i)],prm[:T],
-				prm[Symbol(:Aₓ,i)],
-				prm[:ξ]);
-	end
+	# ∫_{[0,T]∩[Aₓ+t₀,L+t₀]}exp(-ξ(T-t))(A-A*(t-t₀-Aₓ)/(L-Aₓ))dt
+	I₂ = ( (a2>=b2)||(L==Aₓ) ?
+	        0.0 : 1/ξ*exp(ξ*(b2-T))*(A-A*(b2-t₀-Aₓ)/(L-Aₓ)) - 1/ξ*exp(ξ*(a2-T))*(A-A*(a2-t₀-Aₓ)/(L-Aₓ)) + 1/ξ^2*(A/(L-Aₓ))*(exp(ξ*(b2-T))-exp(ξ*(a2-T)))
+	     );
 
-	return λval
+	return I₁+I₂
 end
 function shedλ!(prm::Dict{Symbol,Float64};
 		λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])));
@@ -230,6 +216,12 @@ function shedλ!(prm::Dict{Symbol,Float64};
 				prm[:ξ]);
 	end
 
+end
+function shedλ(prm::Dict{Symbol,Float64})
+	λval = Vector{Float64}(undef,Int64(prm[:nmax]));
+	shedλ!(prm;λval=λval);
+
+	return λval
 end
 
 # logΓ
@@ -265,7 +257,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
 	       flagλval::Bool=true)
-	# Bounding box prior
+	# Bounding box prior should expand prior to require Aₓ<=L
 	for key in keys(prmvary)
 		if prmvary[key]&&( sum( (prm[key]<prmrg[key][1])+(prm[key]>prmrg[key][2]) ) !=0 )
 			return -Inf
@@ -273,24 +265,15 @@ function logπ!(prm::Dict{Symbol,Float64},
 	end
 
 	# Likelihood
-	niso = Int64(floor(prm[:niso])); n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
 	val = 0.0;
 	if flagλval
 		shedλ!(prm;λval=λval);
 	end
-	for i=(niso+1):(niso+n)
+	for i=1:n
 		val += λval[i];
 	end
-	val = -val + floor(prm[:Y])*log(val);	
-	
-	# Prior calibrated from fall isolation data
-#	val2 = 0.0;
-#	for i=1:niso
-#		val2 += λval[i];
-#	end
-#	val2 = -val2 + floor(prm[:Yiso])*log(val2);
-
-#	val += val2;
+	val = -val + floor(prm[:Y])*log(val);
 
 	# Priors on shedding amplitude
 	for i=1:nmax
@@ -321,9 +304,9 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
                 prm[:Γβ] = prm0[:Γβ] + Δβ*randn(rng);
         end
 
-	# Double-check this patched-MH rejection is valid
-	#  Point is if alpha and beta aren't in cnst reg, the chain automatically rejects it
-	#  Used since nonpositive values cause Gamma sampling to fail
+	# Patched MH rejection
+	#  Point is if alpha and beta aren't in cnst reg, the chain automatically rejects prm
+	#  and resets to prm0. Used since nonpositive values cause Gamma sampling to fail.
 	if (prm[:Γα]<=0)||(prm[:Γβ]<=0)
 		for key in keys(prm0)	
 			prm[key] = prm0[key];
@@ -331,7 +314,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		return
 	end
 
-	niso = Int64(floor(prm[:niso])); n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
 	if prmvary[:A1]
 		Γdistr = Gamma(prm[:Γα],1/prm[:Γβ]);
 		for i=1:nmax
@@ -371,17 +354,7 @@ function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	       flagλval::Bool=true)
 	val = 0.0;
 
-	if prmvary[:Γα]
-		ΔΓα = 0.02*(prmrg[:Γα][2]-prmrg[:Γα][1]);
-		val += lognrm(prm0[:Γα],ΔΓα,prm[:Γα]);
-	end
-
-	if prmvary[:Γβ]
-		ΔΓβ = 0.02*(prmrg[:Γβ][2]-prmrg[:Γβ][1]);
-		val += lognrm(prm0[:Γβ],ΔΓβ,prm[:Γβ]);
-	end
-	
-	niso = Int64(floor(prm[:niso])); n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
 	if prmvary[:A1]
 		for i=1:nmax
 			Ai = Symbol(:A,i);
@@ -399,8 +372,8 @@ nonzero
 """
 function init!(prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool}; 
-		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
-		  rng::MersenneTwister=MersenneTwister())
+	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
+	       rng::MersenneTwister=MersenneTwister())
 	flagfd = false;
 
 	while !flagfd
@@ -425,7 +398,7 @@ Compute the log Metropolis-Hastings acceptance ratio
 function logmh!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	        flagcase::Symbol=:glbl,
-	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])))
+	        λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])))
 	
 	# stationary distribution
 	val  = logπ!(prm,prmrg,prmvary;λval=λval);
