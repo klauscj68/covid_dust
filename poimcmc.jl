@@ -138,56 +138,6 @@ function mcmcrg()
 	return prmrg,prmvary
 end
 
-# wrtprm
-"""
-Write the prm dictionary to a column vector for storing to csv's
-Uses multiple dispatch
-call with no args: returns the dimension of column vector needed to store 
-                   and list of keys
-call with dictionary etc: returns the column vector stored in order of keys(prm)
-"""
-function wrtprm()
-	prm,vkeys = data();
-	
-	# Create a vector of aprp size
-	nelm = length(vkeys);
-
-	V = Vector{Float64}(undef,nelm);
-	for i=1:nelm
-		V[i] = prm[vkeys[i]];
-	end
-		       
-	return prm,vkeys,V
-end
-function wrtprm!(prm::Dict{Symbol,Float64},vkeys::Vector{Symbol},
-                   V::VecVw)
-
-	for i=1:length(vkeys)
-		V[i] = prm[vkeys[i]];
-	end
-	
-end
-function wrtprm!(prm1::Dict{Symbol,Float64},
-		 prm2::Dict{Symbol,Float64})
-	for key in keys(prm1)
-		prm2[key] = prm1[key];
-	end
-end
-
-# rdprm
-"""
-Read a column vector formatted like wrtprm into a dictionary for 
-restarting runs assuming each parameter has size 1.
-"""
-function rdprm(V::Vector{Float64},vkeys::Vector{Symbol})
-	prm=Dict{Symbol,Float64}();
-	for i=1:length(vkeys)
-		prm[vkeys[i]] = V[i];
-	end
-
-	return prm,vkeys
-end
-
 # shedλ
 """
 Compute the shedding μp = ∫ᵀ₀exp[-ξ*(T-t)]λ(t-t₀;θ)dt as function of input 
@@ -368,7 +318,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 
 	# Patched MH rejection
 	#  Point is if alpha and beta aren't in cnst reg, the chain automatically rejects prm
-	#  and resets to prm0. Used Julia wont sample a Gamma with nonpositive hyperparams
+	#  and resets to prm0. Used bc Julia wont sample a Gamma with nonpositive hyperparams
 	if (prm[:Γα]<=0)||(prm[:Γβ]<=0)
 		for key in keys(prm0)	
 			prm[key] = prm0[key];
@@ -526,7 +476,6 @@ function mcmcrun(nsmp::Int64;
 	# run mcmc
 	prg = 0.0;
 	for i=1:nsmp
-		
 		mhrej[i] = mcmcsmp!(prm0,prm,prmrg,prmvary;
 			            λval=λval,rng=rng,ncyc=ncyc);
 		smp = @view SMP[:,i];
@@ -549,4 +498,55 @@ function mcmcrun(nsmp::Int64;
 	rejrt = sum(mhrej)/(ncyc*nsmp); aptrt = 1-rejrt; aptwt = 1/aptrt;
 	println("Rejection rate: $rejrt");
 	println("Average num proposals before an accept: $aptwt");
-end;
+end
+
+
+# wrtprm
+"""
+Write the prm dictionary to a column vector for storing to csv's
+Uses multiple dispatch
+call with no args: returns the dimension of column vector needed to store 
+                   and list of keys
+call with dictionary etc: returns the column vector stored in order of keys(prm)
+"""
+function wrtprm()
+	prm,vkeys = data();
+	
+	# Create a vector of aprp size
+	nelm = length(vkeys);
+
+	V = Vector{Float64}(undef,nelm);
+	for i=1:nelm
+		V[i] = prm[vkeys[i]];
+	end
+		       
+	return prm,vkeys,V
+end
+function wrtprm!(prm::Dict{Symbol,Float64},vkeys::Vector{Symbol},
+                   V::VecVw)
+
+	for i=1:length(vkeys)
+		V[i] = prm[vkeys[i]];
+	end
+	
+end
+function wrtprm!(prm1::Dict{Symbol,Float64},
+		 prm2::Dict{Symbol,Float64})
+	for key in keys(prm1)
+		prm2[key] = prm1[key];
+	end
+end
+
+# rdprm
+"""
+Read a column vector formatted like wrtprm into a dictionary for 
+restarting runs assuming each parameter has size 1.
+"""
+function rdprm(V::Vector{Float64},vkeys::Vector{Symbol})
+	prm=Dict{Symbol,Float64}();
+	for i=1:length(vkeys)
+		prm[vkeys[i]] = V[i];
+	end
+
+	return prm,vkeys
+end
