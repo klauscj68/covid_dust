@@ -13,10 +13,10 @@ function data()
 	prm = Dict{Symbol,Float64}();
 	
 	# cap number of infected people in building
-	prm[:nmax] = 100.0; nmax = Int64(prm[:nmax]);
+	prm[:nmax] = 20.0; nmax = Int64(prm[:nmax]);
 
 	# number of infected people in the building
-	prm[:n] = 10.0;
+	prm[:n] = 20.0;
 
 	# individual infection times
 	for i=1:nmax
@@ -57,7 +57,7 @@ function data()
 	prm[:T] = 7.0;
 
 	# dust measurement copies/mg dust
-	prm[:Y] = 144.0;
+	prm[:Y] = 86.2;
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
@@ -74,13 +74,13 @@ function mcmcrg()
 	
 	# max permitted number of infected people in building
 	#  nmax should agree with what is in data and not be varied
-	prmrg[:nmax] = [100.0,101.0]; nmax = Int64(prmrg[:nmax][2]);
+	prmrg[:nmax] = [200.0,201.0]; nmax = Int64(prmrg[:nmax][2]);
 	prmvary[:nmax] = false;
 
 	# number of infected people in the building
 	#  bound by nmax enforced in prior
-	prmrg[:n] = [1.0,100.0]; # For rej stats have be 1 less than nmax
-	prmvary[:n] = true;
+	prmrg[:n] = [1.0,200.0]; # For rej stats have be 1 less than nmax
+	prmvary[:n] = false;
 
 	# individual infection times
 	for i=1:nmax
@@ -92,11 +92,11 @@ function mcmcrg()
 
 	# λ-params # maybe 50% pickup in dorms by vacuum
 	# Γ-distribution hyperparameters for amplitude
-	prmrg[:Γα] = [0.001725,0.1725];
-	prmvary[:Γα] = false;
+	prmrg[:Γα] = [0.0015,0.15];
+	prmvary[:Γα] = true;
 
-	prmrg[:Γβ] = [0.0002225,0.02225];
-	prmvary[:Γβ] = false;
+	prmrg[:Γβ] = [0.000875,0.0875];
+	prmvary[:Γβ] = true;
 
 	#  shedding amplitude
 	for i=1:nmax
@@ -358,12 +358,12 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	# prp density on Gamma hypers is random walk
 	if prmvary[:Γα]
 		ΔΓα = 0.02*(prmrg[:Γα][2]-prmrg[:Γα][1]);
-		prm[:Γα] = prm0[:Γα] + Δα*randn(rng);
+		prm[:Γα] = prm0[:Γα] + ΔΓα*randn(rng);
 	end
 
 	if prmvary[:Γβ]
                 ΔΓβ = 0.02*(prmrg[:Γβ][2]-prmrg[:Γβ][1]);
-                prm[:Γβ] = prm0[:Γβ] + Δβ*randn(rng);
+                prm[:Γβ] = prm0[:Γβ] + ΔΓβ*randn(rng);
         end
 
 	# Patched MH rejection
