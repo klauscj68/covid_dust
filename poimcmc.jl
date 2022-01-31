@@ -6,8 +6,6 @@ VecVw = Union{Vector{Float64},
 # data
 """
 Return dictionary with default parameter values
- First niso entries of vectors correspond to isolation room data
- niso+1:niso+n are where number of infected people in building are given
 """
 function data()
 	prm = Dict{Symbol,Float64}();
@@ -19,7 +17,7 @@ function data()
 	prm[:n] = 20.0;
 
 	# individual infection times
-	for i=1:nmax
+	@inbounds for i=1:nmax
 		sym = Symbol("t"*string(i));
 		prm[sym] = 0.0;
 	end
@@ -33,19 +31,19 @@ function data()
 	prm[:Γβ] = 0.00875;
 
 	#  shedding amplitude
-	for i=1:nmax
+	@inbounds for i=1:nmax
 		sym = Symbol("A"*string(i));
 		prm[sym] = 1.7142857;
 	end
 
 	#  shedding amplitude position
-	for i=1:nmax
+	@inbounds for i=1:nmax
 		sym = Symbol("Aₓ"*string(i));
 		prm[sym] = 3.5;
 	end
 
 	#  shedding duration
-	for i=1:nmax
+	@inbounds for i=1:nmax
 		sym = Symbol("L"*string(i));
 		prm[sym] = 7.0;
 	end
@@ -83,7 +81,7 @@ function mcmcrg()
 	prmvary[:n] = false;
 
 	# individual infection times
-	for i=1:nmax
+	@inbounds for i=1:nmax
 		sym = Symbol("t"*string(i));
 		prmrg[sym] = [-3.0,7.0]; # max t₀ should be less than the fixed T-value
 					 # for efficient sampling
@@ -99,7 +97,7 @@ function mcmcrg()
 	prmvary[:Γβ] = true;
 
 	#  shedding amplitude
-	for i=1:nmax
+	@inbounds for i=1:nmax
 		sym = Symbol("A"*string(i));
 		prmrg[sym] = [0.0,Inf];
 		prmvary[sym] = true;
@@ -110,14 +108,14 @@ function mcmcrg()
 	#   have problem if L is varied while Ax is not. Similarly
 	#   min permitted value of Ax should be <= min permitted
 	#   value of L
-	for i=1:nmax
+	@inbounds for i=1:nmax
 		sym = Symbol("Aₓ"*string(i));
 		prmrg[sym] = [0.0,14.0];
 		prmvary[sym] = true;
 	end
 
 	#  shedding duration 
-	for i=1:nmax
+	@inbounds for i=1:nmax
 		sym = Symbol("L"*string(i));
 		prmrg[sym] = [7.0,14.0];
 		prmvary[sym] = true;
@@ -165,7 +163,7 @@ function shedλ(A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
 end
 function shedλ!(prm::Dict{Symbol,Float64};
 		λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])));
-	for i=1:Int64(prm[:nmax])
+	@inbounds for i=1:Int64(prm[:nmax])
 		λval[i] = shedλ(prm[Symbol(:A,i)],prm[Symbol(:L,i)],
 				prm[Symbol(:t,i)],prm[:T],
 				prm[Symbol(:Aₓ,i)],
@@ -216,7 +214,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 	
 	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
 	# Indicator prior on all params save shedding amplitudes A
-	for key in keys(prmvary)
+	@inbounds for key in keys(prmvary)
 		if prmvary[key]&&( (prm[key]<prmrg[key][1])||(prm[key]>prmrg[key][2]) )
 			return -Inf
 		end
@@ -224,7 +222,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 	
 	#  Indicator for Aₓ<=L
 	if prmvary[Symbol(:Aₓ1)]
-		for i=1:nmax
+		@inbounds for i=1:nmax
 			Ai = Symbol(:Aₓ,i);
 			Li = Symbol(:L,i);
 			if prm[Ai]>prm[Li]
@@ -235,7 +233,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 	
 	#  Indicator for t₀<=T
 	if prmvary[Symbol(:t1)]
-		for i=1:nmax
+		@inbounds for i=1:nmax
 			ti = Symbol(:t,i);
 			if prm[ti]>prm[:T]
 				return -Inf
@@ -245,7 +243,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 	
 	# Priors on shedding amplitude conditioned on Γα,Γβ
 	val1 = 0.0;
-	for i=1:nmax
+	@inbounds for i=1:nmax
 		Ai = Symbol(:A,i);
 		val1 += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
 	end
@@ -255,7 +253,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 		shedλ!(prm;λval=λval);
 	end
 	val2 = 0.0;
-	for i=1:n
+	@inbounds for i=1:n
 		val2 += λval[i];
 	end
 	val2 = -val2 + floor(prm[:Y])*log(val2);	
@@ -274,14 +272,14 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
 	# Joint prp density of L x Ax is a unif trapezoid, so propto indicator
 	if prmvary[:L1]
-		for i=1:nmax
+		@inbounds for i=1:nmax
 			Li = Symbol(:L,i);
 			prm[Li] = prmrg[Li][1]+rand(rng)*(prmrg[Li][2]-prmrg[Li][1]);
 		end
 	end
 
 	if prmvary[:Aₓ1]
-		for i=1:nmax
+		@inbounds for i=1:nmax
 			Axi = Symbol(:Aₓ,i); Li = Symbol(:L,i);
 			prm[Axi] = prmrg[Axi][1] + rand(rng)*(prm[Li]-prmrg[Axi][1]);
 		end
@@ -294,7 +292,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 
 	# prp density on t₀'s is unif
 	if prmvary[:t1]
-		for i=1:nmax
+		@inbounds for i=1:nmax
 			ti = Symbol(:t,i);
 			prm[ti] = prmrg[ti][1]+rand(rng)*(prmrg[ti][2]-prmrg[ti][1]);
 		end
@@ -320,7 +318,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	#  Point is if alpha and beta aren't in cnst reg, the chain automatically rejects prm
 	#  and resets to prm0. Used bc Julia wont sample a Gamma with nonpositive hyperparams
 	if (prm[:Γα]<=0)||(prm[:Γβ]<=0)
-		for key in keys(prm0)	
+		@inbounds for key in keys(prm0)	
 			prm[key] = prm0[key];
 		end
 		return
@@ -329,7 +327,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	# prp density of amplitudes conditioned on hypers is Gamma
 	if prmvary[:A1]
 		Γdistr = Gamma(prm[:Γα],1/prm[:Γβ]);
-		for i=1:nmax
+		@inbounds for i=1:nmax
 			Ai = Symbol(:A,i);
 			prm[Ai] = rand(rng,Γdistr);
 		end
@@ -351,7 +349,7 @@ function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 
 	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
 	if prmvary[:A1]
-		for i=1:nmax
+		@inbounds for i=1:nmax
 			Ai = Symbol(:A,i);
 			val += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
 		end
@@ -371,7 +369,7 @@ function init!(prm::Dict{Symbol,Float64},
 	       rng::MersenneTwister=MersenneTwister())
 	flagfd = false;
 	while !flagfd
-		for key in keys(prmvary)
+		@inbounds for key in keys(prmvary)
 			if prmvary[key]
 				prm[key] = prmrg[key][1] .+ rand(rng)*(
 						prmrg[key][2]-prmrg[key][1] < Inf ? prmrg[key][2]-prmrg[key][1] : 1000.0
@@ -379,7 +377,7 @@ function init!(prm::Dict{Symbol,Float64},
 			end
 		end
 		if prmvary[:Aₓ1]
-			for i=1:Int64(prm[:nmax])
+			@inbounds for i=1:Int64(prm[:nmax])
 				Axi = Symbol(:Aₓ,i); Li = Symbol(:L,i);
 				prm[Axi] = prmrg[Axi][1]+rand(rng)*(prm[Li]-prmrg[Axi][1]);
 			end
@@ -422,13 +420,13 @@ function mcmcsmp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		  rng::MersenneTwister=MersenneTwister(),
 		  ncyc::Int64=1)
 	nrej = 0;
-	for i=1:ncyc
+	@inbounds for i=1:ncyc
 		prp!(prm0,prm,prmrg,prmvary;λval=λval,rng=rng)
 
 		coin = rand(rng) |> log;
 		if coin <=logmh!(prm0,prm,prmrg,prmvary;λval=λval)
 			# accept
-			for key in keys(prm0)
+			@inbounds for key in keys(prm0)
 				if prmvary[key]
 					prm0[key] = prm[key];
 				end
@@ -460,7 +458,7 @@ function mcmcrun(nsmp::Int64;
 
 		prm0 = deepcopy(prm);	
 	else
-		df0 = CSV.read("MCMCsmp.csv",DataFrame);
+		df0 = CSV.read("MCMCsmp.csv",DataFrame,header=false);
 		vkeys = Symbol.(df0[:,1]); V = df0[:,end];
 		prm0,_ = rdprm(V,vkeys); prm = deepcopy(prm0);
 		rng = myloadrng();
@@ -475,7 +473,7 @@ function mcmcrun(nsmp::Int64;
 
 	# run mcmc
 	prg = 0.0;
-	for i=1:nsmp
+	@inbounds for i=1:nsmp
 		mhrej[i] = mcmcsmp!(prm0,prm,prmrg,prmvary;
 			            λval=λval,rng=rng,ncyc=ncyc);
 		smp = @view SMP[:,i];
@@ -516,7 +514,7 @@ function wrtprm()
 	nelm = length(vkeys);
 
 	V = Vector{Float64}(undef,nelm);
-	for i=1:nelm
+	@inbounds for i=1:nelm
 		V[i] = prm[vkeys[i]];
 	end
 		       
@@ -525,14 +523,14 @@ end
 function wrtprm!(prm::Dict{Symbol,Float64},vkeys::Vector{Symbol},
                    V::VecVw)
 
-	for i=1:length(vkeys)
+	@inbounds for i=1:length(vkeys)
 		V[i] = prm[vkeys[i]];
 	end
 	
 end
 function wrtprm!(prm1::Dict{Symbol,Float64},
 		 prm2::Dict{Symbol,Float64})
-	for key in keys(prm1)
+	@inbounds for key in keys(prm1)
 		prm2[key] = prm1[key];
 	end
 end
@@ -544,7 +542,7 @@ restarting runs assuming each parameter has size 1.
 """
 function rdprm(V::Vector{Float64},vkeys::Vector{Symbol})
 	prm=Dict{Symbol,Float64}();
-	for i=1:length(vkeys)
+	@inbounds for i=1:length(vkeys)
 		prm[vkeys[i]] = V[i];
 	end
 
