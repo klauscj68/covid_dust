@@ -270,7 +270,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
 		  rng::MersenneTwister=MersenneTwister())
 	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
-	# Joint prp density of L x Ax is a unif trapezoid, so propto indicator
+	# Joint prp density for L x Ax is f(L)~1_[0,L] and f(A|L)=1/(L-minAx)*1_[minAx,L]
 	if prmvary[:L1]
 		@inbounds for i=1:nmax
 			Li = Symbol(:L,i);
@@ -337,9 +337,10 @@ end
 # logρ!
 """
 Evaluate the log unnormalized proposal density ρ(y|x) needed in mhratio
-for the subset of parameters being varied. Only Gamma's tracked bc the unif's
-in proposal density take same values all x ind of y and the random walk only
-depends on |x-y| which is same y|x and x|y
+for the subset of parameters being varied. Only the ρ(A|L) normalizing
+factor and Gamma's need to be tracked since the other factors are either
+prop to indicators and cancel in the ratio or are the random walk which
+is symmetric depending only on |x-y| which is same y|x or x|y.
 """
 function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
@@ -348,6 +349,13 @@ function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	val = 0.0;
 
 	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+	if prmvary[:Aₓ1]
+		@inbounds for i=1:nmax
+			Axi = Symbol(:Aₓ,i); Li = Symbol(:L,i);
+			val += -log(prm[Li]-prmrg[Axi][1]);
+		end
+	end
+	
 	if prmvary[:A1]
 		@inbounds for i=1:nmax
 			Ai = Symbol(:A,i);
