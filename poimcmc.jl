@@ -22,6 +22,12 @@ function data()
 		prm[sym] = 0.0;
 	end
 
+	# individual times taking up residence in building
+	@inbounds for i=1:nmax
+		sym = Symbol("te"*string(i));
+		prm[sym] = 0.0;
+	end
+
 	# λ-params
 	# Γ-hyperparameters for shedding amplitude
 	# Γ(α,β) ~ β^α*x^{α-1}exp(-βx)/Γ(α)
@@ -88,6 +94,15 @@ function mcmcrg()
 		prmvary[sym] = true;
 	end
 
+	# individuals taking up residence in building times
+	@inbounds for i=1:nmax
+		sym = Symbol("te"*string(i)); #shedλ will integrate curve from 
+		                              #[max(0,te),T] and vacate integral
+					      #if te>T
+		prmrg[sym] = [-3.0,7.0];
+		prmvary[sym] = true;
+	end
+
 	# λ-params # maybe 50% pickup in dorms by vacuum
 	# Γ-distribution hyperparameters for amplitude
 	prmrg[:Γα] = [0.0015,0.15];
@@ -144,22 +159,26 @@ Also include a mutating version of the dictionary case for mem alloc. Right now
 routine can handle Aₓ=0 or L but not ξ=0.
 """
 function shedλ(A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
-	       ξ::Float64)
-	a1 = 0.0 >= t₀ ? 0.0 : t₀; b1 = T <= Aₓ+t₀ ? T : Aₓ+t₀;
-	a2 = 0.0 >= Aₓ+t₀ ? 0.0 : Aₓ+t₀; b2 = T <= L+t₀ ? T : L+t₀;
-	lnA = log(A);
+	       ξ::Float64,tₑ::Float64)
 
-	# ∫_{[0,T]∩[t₀,Aₓ+t₀]}exp(-ξ(T-t))exp(A*(t-t₀)/Aₓ)dt
+	a0 = 0.0 >= tₑ ? 0.0 : tₑ;
+	a1 = t₀ >= a0 ? t₀ : a0; b1 = T <= Aₓ+t₀ ? T : Aₓ+t₀;
+	a2 = Aₓ+t₀ >= a0 ? Aₓ+t₀ : a0; b2 = T <= L+t₀ ? T : L+t₀;
+	
+	lnA = log(A+1); # A+1 so that when do -1 return A
+
+	# ∫_{[0,T]∩[t₀,Aₓ+t₀]}exp(-ξ(T-t))(exp(A*(t-t₀)/Aₓ)-1)dt
 	I₁ = ( (a1>=b1)||(Aₓ==0.0) ? 
-	      0.0 : exp(-ξ*T-lnA/Aₓ*t₀)*1/(ξ+lnA/Aₓ)*( exp((ξ+lnA/Aₓ)*b1)-exp((ξ+lnA/Aₓ)*a1) ) 
+	      0.0 : exp(-ξ*T-lnA/Aₓ*t₀)*1/(ξ+lnA/Aₓ)*( exp((ξ+lnA/Aₓ)*b1)-exp((ξ+lnA/Aₓ)*a1) ) -exp(-ξ*T)/ξ*(exp(ξ*b1)-exp(ξ*a1))
 	     );
 
-	# ∫_{[0,T]∩[Aₓ+t₀,L+t₀]}exp(-ξ(T-t))exp(A-A*(t-t₀-Aₓ)/(L-Aₓ))dt
+	# ∫_{[0,T]∩[Aₓ+t₀,L+t₀]}exp(-ξ(T-t))(exp(A-A*(t-t₀-Aₓ)/(L-Aₓ))-1)dt
 	I₂ = ( (a2>=b2)||(L==Aₓ) ?
-	      0.0 : exp(-ξ*T+lnA+lnA/(L-Aₓ)*(t₀+Aₓ))*1/(ξ-lnA/(L-Aₓ))*( exp((ξ-lnA/(L-Aₓ))*b2)-exp((ξ-lnA/(L-Aₓ))*a2)  )  
+	      0.0 : exp(-ξ*T+lnA+lnA/(L-Aₓ)*(t₀+Aₓ))*1/(ξ-lnA/(L-Aₓ))*( exp((ξ-lnA/(L-Aₓ))*b2)-exp((ξ-lnA/(L-Aₓ))*a2)  )  -exp(-ξ*T)/ξ*(exp(ξ*b2)-exp(ξ*a2))
 	     );
-
-	return I₁+I₂
+	val = I₁+I₂;
+		
+	return val > 0 ? val : 1e-16
 end
 function shedλ!(prm::Dict{Symbol,Float64};
 		λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])));
@@ -167,7 +186,8 @@ function shedλ!(prm::Dict{Symbol,Float64};
 		λval[i] = shedλ(prm[Symbol(:A,i)],prm[Symbol(:L,i)],
 				prm[Symbol(:t,i)],prm[:T],
 				prm[Symbol(:Aₓ,i)],
-				prm[:ξ]);
+				prm[:ξ],
+				prm[Symbol(:te,i)]);
 	end
 
 end
@@ -295,6 +315,14 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		@inbounds for i=1:nmax
 			ti = Symbol(:t,i);
 			prm[ti] = prmrg[ti][1]+rand(rng)*(prmrg[ti][2]-prmrg[ti][1]);
+		end
+	end
+
+	# prp density of tₑ's is unif
+	if prmvary[:te1]
+		@inbounds for i=1:nmax
+			tei = Symbol(:te,i);
+			prm[tei] = prmrg[tei][1]+rand(rng)*(prmrg[tei][2]-prmrg[tei][1]);
 		end
 	end
 	
