@@ -11,10 +11,10 @@ function data()
 	prm = Dict{Symbol,Float64}();
 	
 	# cap number of infected people in building
-	prm[:nmax] = 20.0; nmax = Int64(prm[:nmax]);
+	prm[:nmax] = 38.0; nmax = Int64(prm[:nmax]);
 
 	# number of infected people in the building
-	prm[:n] = 20.0;
+	prm[:n] = 38.0;
 
 	# individual infection times
 	@inbounds for i=1:nmax
@@ -61,7 +61,7 @@ function data()
 	prm[:T] = 7.0;
 
 	# dust measurement copies/mg dust
-	prm[:Y] = 86.2;
+	prm[:Y] = 283.398;
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
@@ -89,7 +89,7 @@ function mcmcrg()
 	# individual infection times
 	@inbounds for i=1:nmax
 		sym = Symbol("t"*string(i));
-		prmrg[sym] = [-3.0,7.0]; # max t₀ should be less than the fixed T-value
+		prmrg[sym] = [-3.0,0.0]; # max t₀ should be less than the fixed T-value
 					 # for efficient sampling
 		prmvary[sym] = true;
 	end
@@ -100,15 +100,15 @@ function mcmcrg()
 		                              #[max(0,te),T] and vacate integral
 					      #if te>T
 		prmrg[sym] = [-3.0,7.0];
-		prmvary[sym] = true;
+		prmvary[sym] = false;
 	end
 
 	# λ-params # maybe 50% pickup in dorms by vacuum
 	# Γ-distribution hyperparameters for amplitude
-	prmrg[:Γα] = [0.0015,0.15];
+	prmrg[:Γα] = [0.0,200.0];
 	prmvary[:Γα] = true;
 
-	prmrg[:Γβ] = [0.000875,0.0875];
+	prmrg[:Γβ] = [0.0,100.0];
 	prmvary[:Γβ] = true;
 
 	#  shedding amplitude
