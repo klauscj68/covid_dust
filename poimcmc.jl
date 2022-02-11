@@ -31,12 +31,20 @@ function data()
 	end
 
 	# λ-params
-	# Γ-hyperparameters for shedding amplitude
-	# Γ(α,β) ~ β^α*x^{α-1}exp(-βx)/Γ(α)
-	#  mean: α/β
-	#  var:  α/β^2
-	prm[:Γα] = 0.015;
+	#  Γ-hyperparameters for shedding amplitude
+	#   Γ(α,β) ~ β^α*x^{α-1}exp(-βx)/Γ(α)
+	#   mean: α/β
+	#   var:  α/β^2
+	prm[:Γα] = 1.0;
 	prm[:Γβ] = 0.00875;
+
+	#  Normal-hyperparameters for increment of pos peak rel inf time
+	prm[:Aₓμ] = 4.2;
+	prm[:Aₓσ] = 0.5;
+
+	#  Normal-hyperparameters for increment of duration rel pos peak
+	prm[:Lμ] = 7.3;
+	prm[:Lσ] = 0.6;
 
 	#  shedding amplitude
 	@inbounds for i=1:nmax
@@ -60,14 +68,14 @@ function data()
 	prm[:ξ] = log(2)/7;
 
 	# Time after time 0 at which dust collected
-	prm[:T] = 7.0;
+	prm[:T] = 10.0;
 
 	# dust measurement copies/mg dust
 	#  Fall 2020 Iso: bag 1 145.598
 	#                 bag 2 199.85
 	#                 bag 3 283.398
 	#                 bag 4 3226.79
-	prm[:Y] = 3226.79; 
+	prm[:Y] = 172.724; 
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
@@ -95,7 +103,7 @@ function mcmcrg()
 	# individual infection times
 	@inbounds for i=1:nmax
 		sym = Symbol("t"*string(i));
-		prmrg[sym] = [-3.0,0.0]; # max t₀ should be less than the fixed T-value
+		prmrg[sym] = [-10.0,9.0]; # max t₀ should be less than the fixed T-value
 					 # for efficient sampling
 		prmvary[sym] = true;
 	end
@@ -105,17 +113,32 @@ function mcmcrg()
 		sym = Symbol("te"*string(i)); #shedλ will integrate curve from 
 		                              #[max(0,te),T] and vacate integral
 					      #if te>T
-		prmrg[sym] = [-3.0,7.0];
+		prmrg[sym] = [-9.0,10.0];
 		prmvary[sym] = false;
 	end
 
 	# λ-params # maybe 50% pickup in dorms by vacuum
-	# Γ-distribution hyperparameters for amplitude
+	#  Γ-distribution hyperparameters for amplitude
 	prmrg[:Γα] = [0.0,10000.0];
-	prmvary[:Γα] = true;
+	prmvary[:Γα] = false;
 
-	prmrg[:Γβ] = [0.0,10000.0]/35;
+	prmrg[:Γβ] = [0.0,1.0];
 	prmvary[:Γβ] = true;
+
+	#  Normal-distribution hyperparameters for Aₓ increment
+	prmrg[:Aₓμ] = [3.0,5.0];
+	prmvary[:Aₓμ] = false;
+
+	prmrg[:Aₓσ] = [0.0,1.0];
+	prmvary[:Aₓσ] = false;
+	
+	#  Normal-distribution hyperparameters for L increment
+	prmrg[:Lμ] = [6.0,8.0];
+	prmvary[:Lμ] = false;
+
+	prmrg[:Lσ] = [0.0,0.25];
+	prmvary[:Lσ] = false;
+
 
 	#  shedding amplitude
 	@inbounds for i=1:nmax
@@ -131,14 +154,14 @@ function mcmcrg()
 	#   value of L
 	@inbounds for i=1:nmax
 		sym = Symbol("Aₓ"*string(i));
-		prmrg[sym] = [0.0,14.0];
+		prmrg[sym] = [-Inf,Inf];
 		prmvary[sym] = true;
 	end
 
 	#  shedding duration 
 	@inbounds for i=1:nmax
 		sym = Symbol("L"*string(i));
-		prmrg[sym] = [7.0,14.0];
+		prmrg[sym] = [-Inf,Inf];
 		prmvary[sym] = true;
 	end
 
@@ -162,10 +185,15 @@ end
 Compute the shedding μp = ∫ᵀ₀exp[-ξ*(T-t)]λ(t-t₀;θ)dt as function of input 
 parameters. Multiple dispatch for case of single param values and a dictionary.
 Also include a mutating version of the dictionary case for mem alloc. Right now
-routine can handle Aₓ=0 or L but not ξ=0.
+routine can handle Aₓ=0 or L but not ξ=0. When flagsynth is set to true, the code
+assumes a person enters the building (eg isolation) a fixed interval after 
+becoming infected
 """
 function shedλ(A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
-	       ξ::Float64,tₑ::Float64)
+	       ξ::Float64,tₑ::Float64;flagsynth::Bool=true)
+	if flagsynth
+		tₑ = t₀+1;
+	end
 
 	a0 = 0.0 >= tₑ ? 0.0 : tₑ;
 	a1 = t₀ >= a0 ? t₀ : a0; b1 = T <= Aₓ+t₀ ? T : Aₓ+t₀;
@@ -239,21 +267,10 @@ function logπ!(prm::Dict{Symbol,Float64},
 	       flagλval::Bool=true)	
 	
 	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
-	# Indicator prior on all params save shedding amplitudes A
+	# Indicator prior on all params save Aₓ,L,A
 	@inbounds for key in keys(prmvary)
 		if prmvary[key]&&( (prm[key]<prmrg[key][1])||(prm[key]>prmrg[key][2]) )
 			return -Inf
-		end
-	end
-	
-	#  Indicator for Aₓ<=L
-	if prmvary[Symbol(:Aₓ1)]
-		@inbounds for i=1:nmax
-			Ai = Symbol(:Aₓ,i);
-			Li = Symbol(:L,i);
-			if prm[Ai]>prm[Li]
-				return -Inf
-			end
 		end
 	end
 	
@@ -267,8 +284,23 @@ function logπ!(prm::Dict{Symbol,Float64},
 		end
 	end
 	
-	# Priors on shedding amplitude conditioned on Γα,Γβ
+	# Priors on Ax, L, A
 	val1 = 0.0;
+	#  Ax|t₀ is N(Aₓμ+t₀,Aₓσ)
+	#@inbounds for i=1:nmax
+	#	Axi = Symbol(:Aₓ,i);
+	#	ti = Symbol(:t,i);
+	#	val1 += lognrm(prm[:Aₓμ]+prm[ti],prm[:Aₓσ],prm[Axi]);
+	#end
+
+	# L|Aₓ is N(Lμ+Aₓ,Lσ)
+	#@inbounds for i=1:nmax
+	#	Li = Symbol(:L,i);
+	#	Axi = Symbol(:Aₓi);
+	#	val1 += lognrm(prm[:Lμ]+prm[Axi],prm[:Lσ],prm[Li]);
+	#end
+
+	# A|Γα,Γβ is Γ(α,β)
 	#@inbounds for i=1:nmax
 	#	Ai = Symbol(:A,i);
 	#	val1 += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
@@ -295,25 +327,23 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		  prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
 		  rng::MersenneTwister=MersenneTwister())
-	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
-	# Joint prp density for L x Ax is f(L)~1_[0,L] and f(A|L)=1/(L-minAx)*1_[minAx,L]
-	if prmvary[:L1]
-		@inbounds for i=1:nmax
-			Li = Symbol(:L,i);
-			prm[Li] = prmrg[Li][1]+rand(rng)*(prmrg[Li][2]-prmrg[Li][1]);
-		end
-	end
-
-	if prmvary[:Aₓ1]
-		@inbounds for i=1:nmax
-			Axi = Symbol(:Aₓ,i); Li = Symbol(:L,i);
-			prm[Axi] = prmrg[Axi][1] + rand(rng)*(prm[Li]-prmrg[Axi][1]);
-		end
-	end
-	
+	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));	
 	# prp density on n unif
 	if prmvary[:n]
 		prm[:n] = prmrg[:n][1]+rand(rng)*(prmrg[:n][2]-prmrg[:n][1])
+	end
+
+	# prp density on ξ is uniform
+	if prmvary[:ξ]
+		prm[:ξ] = prmrg[:ξ][1]+rand(rng)*(prmrg[:ξ][2]-prmrg[:ξ][1]);
+	end
+
+	# prp density of tₑ's is unif
+	if prmvary[:te1]
+		@inbounds for i=1:nmax
+			tei = Symbol(:te,i);
+			prm[tei] = prmrg[tei][1]+rand(rng)*(prmrg[tei][2]-prmrg[tei][1]);
+		end
 	end
 
 	# prp density on t₀'s is unif
@@ -324,30 +354,15 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		end
 	end
 
-	# prp density of tₑ's is unif
-	if prmvary[:te1]
-		@inbounds for i=1:nmax
-			tei = Symbol(:te,i);
-			prm[tei] = prmrg[tei][1]+rand(rng)*(prmrg[tei][2]-prmrg[tei][1]);
-		end
-	end
-	
-	# prp density on ξ is uniform
-	if prmvary[:ξ]
-		prm[:ξ] = prmrg[:ξ][1]+rand(rng)*(prmrg[:ξ][2]-prmrg[:ξ][1]);
-	end
-
 	# prp density on Gamma hypers is random walk
 	if prmvary[:Γα]
 		ΔΓα = 0.02*(prmrg[:Γα][2]-prmrg[:Γα][1]);
 		prm[:Γα] = prm0[:Γα] + ΔΓα*randn(rng);
 	end
-
 	if prmvary[:Γβ]
                 ΔΓβ = 0.02*(prmrg[:Γβ][2]-prmrg[:Γβ][1]);
                 prm[:Γβ] = prm0[:Γβ] + ΔΓβ*randn(rng);
         end
-
 	# Patched MH rejection
 	#  Point is if alpha and beta aren't in cnst reg, the chain automatically rejects prm
 	#  and resets to prm0. Used bc Julia wont sample a Gamma with nonpositive hyperparams
@@ -356,6 +371,25 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 			prm[key] = prm0[key];
 		end
 		return
+	end
+	
+	# prp density on Normal hypers is random walk
+	if prmvary[:Aₓμ]
+		ΔAₓμ = 0.02*(prmrg[:Aₓμ][2]-prmrg[:Aₓμ][1]);
+		prm[:Aₓμ] = prm0[:Aₓμ] + ΔAₓμ*randn(rng);
+	end
+	if prmvary[:Aₓσ]
+		ΔAₓσ = 0.02*(prmrg[:Aₓσ][2]-prmrg[:Aₓσ][1]);
+		prm[:Aₓσ] = prm0[:Aₓσ]+ΔAₓσ*randn(rng);
+	end
+
+	if prmvary[:Lμ]
+		ΔLμ = 0.02*(prmrg[:Lμ][2]-prmrg[:Lμ][1]);
+		prm[:Lμ] = prm0[:Lμ] + ΔLμ*randn(rng);
+	end
+	if prmvary[:Lσ]
+		ΔLσ = 0.02*(prmrg[:Lσ][2]-prmrg[:Lσ][1]);
+		prm[:Lσ] = prm0[:Lσ]+ΔLσ*randn(rng);
 	end
 
 	# prp density of amplitudes conditioned on hypers is Gamma
@@ -366,6 +400,25 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 			prm[Ai] = rand(rng,Γdistr);
 		end
 	end
+
+	# prp density of pos of peak conditioned on t₀ is normal
+	if prmvary[:Aₓ1]
+		@inbounds for i=1:nmax
+			ti = Symbol(:t,i);
+			Aₓi = Symbol(:Aₓ,i);
+			prm[Aₓi] = prm[ti]+prm[:Aₓμ]+prm[:Aₓσ]*randn(rng);
+		end
+	end
+
+	# prp density of length of shedding conditioned on Aₓ is normal
+	if prmvary[:L1]
+		@inbounds for i=1:nmax
+			Aₓi = Symbol(:Aₓ,i);
+			Li = Symbol(:L,i);
+			prm[Li] = prm[Aₓi]+prm[:Lμ]+prm[:Lσ]*randn(rng);
+		end
+	end
+
 end
 
 # logρ!
@@ -383,18 +436,26 @@ function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	val = 0.0;
 
 	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
-	if prmvary[:Aₓ1]
-		@inbounds for i=1:nmax
-			Axi = Symbol(:Aₓ,i); Li = Symbol(:L,i);
-			val += -log(prm[Li]-prmrg[Axi][1]);
-		end
-	end
 	
 	#if prmvary[:A1]
 	#	@inbounds for i=1:nmax
 	#		Ai = Symbol(:A,i);
 	#		val += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
 	#	end
+	#end
+	
+	#  Ax|t₀ is N(Aₓμ+t₀,Aₓσ)
+	#@inbounds for i=1:nmax
+	#	Axi = Symbol(:Aₓ,i);
+	#	ti = Symbol(:t,i);
+	#	val1 += lognrm(prm[:Aₓμ]+prm[ti],prm[:Aₓσ],prm[Axi]);
+	#end
+
+	# L|Aₓ is N(Lμ+Aₓ,Lσ)
+	#@inbounds for i=1:nmax
+	#	Li = Symbol(:L,i);
+	#	Axi = Symbol(:Aₓi);
+	#	val1 += lognrm(prm[:Lμ]+prm[Axi],prm[:Lσ],prm[Li]);
 	#end
 
 	return val
@@ -414,14 +475,8 @@ function init!(prm::Dict{Symbol,Float64},
 		@inbounds for key in keys(prmvary)
 			if prmvary[key]
 				prm[key] = prmrg[key][1] .+ rand(rng)*(
-						prmrg[key][2]-prmrg[key][1] < Inf ? prmrg[key][2]-prmrg[key][1] : 1000.0
-					                                     );
-			end
-		end
-		if prmvary[:Aₓ1]
-			@inbounds for i=1:Int64(prm[:nmax])
-				Axi = Symbol(:Aₓ,i); Li = Symbol(:L,i);
-				prm[Axi] = prmrg[Axi][1]+rand(rng)*(prm[Li]-prmrg[Axi][1]);
+						(prmrg[key][1]!=-Inf)&&(prmrg[key][2]!=Inf) ? prmrg[key][2]-prmrg[key][1] : 1.0
+						                       );
 			end
 		end
 		
@@ -438,7 +493,7 @@ Compute the log Metropolis-Hastings acceptance ratio
 function logmh!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	        λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])))
-	
+		
 	# stationary distribution
 	val  = logπ!(prm,prmrg,prmvary;λval=λval);
 	val -= logπ!(prm0,prmrg,prmvary;λval=λval);
