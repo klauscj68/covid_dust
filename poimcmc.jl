@@ -11,6 +11,8 @@ function data()
 	prm = Dict{Symbol,Float64}();
 	
 	# cap number of infected people in building
+	#  Fall 2020 Iso: 39 avg ppl from Oct 21-27 for dust collected Oct 28th
+	#  		  38 avg ppl from Oct 28th to Nov 3rd for dust collected Nov 4th
 	prm[:nmax] = 38.0; nmax = Int64(prm[:nmax]);
 
 	# number of infected people in the building
@@ -61,7 +63,11 @@ function data()
 	prm[:T] = 7.0;
 
 	# dust measurement copies/mg dust
-	prm[:Y] = 283.398;
+	#  Fall 2020 Iso: bag 1 145.598
+	#                 bag 2 199.85
+	#                 bag 3 283.398
+	#                 bag 4 3226.79
+	prm[:Y] = 3226.79; 
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
@@ -105,10 +111,10 @@ function mcmcrg()
 
 	# λ-params # maybe 50% pickup in dorms by vacuum
 	# Γ-distribution hyperparameters for amplitude
-	prmrg[:Γα] = [0.0,200.0];
+	prmrg[:Γα] = [0.0,10000.0];
 	prmvary[:Γα] = true;
 
-	prmrg[:Γβ] = [0.0,100.0];
+	prmrg[:Γβ] = [0.0,10000.0]/35;
 	prmvary[:Γβ] = true;
 
 	#  shedding amplitude
@@ -263,10 +269,10 @@ function logπ!(prm::Dict{Symbol,Float64},
 	
 	# Priors on shedding amplitude conditioned on Γα,Γβ
 	val1 = 0.0;
-	@inbounds for i=1:nmax
-		Ai = Symbol(:A,i);
-		val1 += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
-	end
+	#@inbounds for i=1:nmax
+	#	Ai = Symbol(:A,i);
+	#	val1 += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
+	#end
 
 	# Likelihood
 	if flagλval
@@ -384,12 +390,12 @@ function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		end
 	end
 	
-	if prmvary[:A1]
-		@inbounds for i=1:nmax
-			Ai = Symbol(:A,i);
-			val += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
-		end
-	end
+	#if prmvary[:A1]
+	#	@inbounds for i=1:nmax
+	#		Ai = Symbol(:A,i);
+	#		val += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
+	#	end
+	#end
 
 	return val
 end
