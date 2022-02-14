@@ -52,13 +52,13 @@ function data()
 		prm[sym] = 1.7142857;
 	end
 
-	#  shedding amplitude position
+	#  shedding amplitude position rel an inf at time 0
 	@inbounds for i=1:nmax
 		sym = Symbol("Aₓ"*string(i));
 		prm[sym] = 3.5;
 	end
 
-	#  shedding duration
+	#  shedding duration rel an inf at time 0
 	@inbounds for i=1:nmax
 		sym = Symbol("L"*string(i));
 		prm[sym] = 7.0;
@@ -286,14 +286,14 @@ function logπ!(prm::Dict{Symbol,Float64},
 	
 	# Priors on Ax, L, A
 	val1 = 0.0;
-	#  Ax|t₀ is N(Aₓμ+t₀,Aₓσ)
+	#  Ax|μ,σ is N(Aₓμ,Aₓσ)
 	#@inbounds for i=1:nmax
 	#	Axi = Symbol(:Aₓ,i);
 	#	ti = Symbol(:t,i);
-	#	val1 += lognrm(prm[:Aₓμ]+prm[ti],prm[:Aₓσ],prm[Axi]);
+	#	val1 += lognrm(prm[:Aₓμ],prm[:Aₓσ],prm[Axi]);
 	#end
 
-	# L|Aₓ is N(Lμ+Aₓ,Lσ)
+	# L|Aₓ,μ,σ is N(Lμ+Aₓ,Lσ)
 	#@inbounds for i=1:nmax
 	#	Li = Symbol(:L,i);
 	#	Axi = Symbol(:Aₓi);
@@ -401,12 +401,12 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		end
 	end
 
-	# prp density of pos of peak conditioned on t₀ is normal
+	# prp density of pos of peak rel inf time is normal
 	if prmvary[:Aₓ1]
 		@inbounds for i=1:nmax
 			ti = Symbol(:t,i);
 			Aₓi = Symbol(:Aₓ,i);
-			prm[Aₓi] = prm[ti]+prm[:Aₓμ]+prm[:Aₓσ]*randn(rng);
+			prm[Aₓi] = prm[:Aₓμ]+prm[:Aₓσ]*randn(rng);
 		end
 	end
 
@@ -448,7 +448,7 @@ function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	#@inbounds for i=1:nmax
 	#	Axi = Symbol(:Aₓ,i);
 	#	ti = Symbol(:t,i);
-	#	val1 += lognrm(prm[:Aₓμ]+prm[ti],prm[:Aₓσ],prm[Axi]);
+	#	val1 += lognrm(prm[:Aₓμ],prm[:Aₓσ],prm[Axi]);
 	#end
 
 	# L|Aₓ is N(Lμ+Aₓ,Lσ)
