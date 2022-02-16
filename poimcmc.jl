@@ -30,6 +30,12 @@ function data()
 		prm[sym] = 0.0;
 	end
 
+	# individual times exiting residence in building
+	@inbounds for i=1:nmax
+		sym = Symbol("tℓ"*string(i));
+		prm[sym] = Inf;
+	end
+
 	# λ-params
 	#  Γ-hyperparameters for shedding amplitude
 	#   Γ(α,β) ~ β^α*x^{α-1}exp(-βx)/Γ(α)
@@ -117,6 +123,13 @@ function mcmcrg()
 		prmvary[sym] = false;
 	end
 
+	# individual times exiting residence in building
+	@inbounds for i=1:nmax
+		sym = Symbol("tℓ"*string(i));
+		prmrg[sym] = [-9.0,10.0];
+		prmvary[sym] = false;
+	end
+
 	# λ-params # maybe 50% pickup in dorms by vacuum
 	#  Γ-distribution hyperparameters for amplitude
 	prmrg[:Γα] = [0.0,10000.0];
@@ -182,31 +195,32 @@ end
 
 # shedλ
 """
-Compute the shedding μp = ∫ᵀ₀exp[-ξ*(T-t)]λ(t-t₀;θ)dt as function of input 
-parameters. Multiple dispatch for case of single param values and a dictionary.
-Also include a mutating version of the dictionary case for mem alloc. Right now
-routine can handle Aₓ=0 or L but not ξ=0. When flagsynth is set to true, the code
-assumes a person enters the building (eg isolation) a fixed interval after 
-becoming infected
+Compute the shedding μp = ∫^min(T,tℓ)_max(0,te) exp[-ξ*(T-t)]λ(t-t₀;θ)dt 
+as function of input parameters, where dust is collected from [0,T]. Multiple 
+dispatch for case of single param values and a dictionary. Also include a 
+mutating version of the dictionary case for mem alloc. Right now routine can 
+handle Aₓ=0 or L but not ξ=0. When flagsynth is set to true, the code assumes
+a person enters the building (eg isolation) a fixed interval after becoming 
+infected
 """
 function shedλ(A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
-	       ξ::Float64,tₑ::Float64;flagsynth::Bool=true)
+	       ξ::Float64,tₑ::Float64,tℓ::Float64;flagsynth::Bool=true)
 	if flagsynth
 		tₑ = t₀+1;
 	end
 
-	a0 = 0.0 >= tₑ ? 0.0 : tₑ;
-	a1 = t₀ >= a0 ? t₀ : a0; b1 = T <= Aₓ+t₀ ? T : Aₓ+t₀;
-	a2 = Aₓ+t₀ >= a0 ? Aₓ+t₀ : a0; b2 = T <= L+t₀ ? T : L+t₀;
+	a0 = 0.0 >= tₑ ? 0.0 : tₑ; b0 = T <= tℓ ? T : tℓ;
+	a1 = t₀ >= a0 ? t₀ : a0; b1 = b0 <= Aₓ+t₀ ? b : Aₓ+t₀;
+	a2 = Aₓ+t₀ >= a0 ? Aₓ+t₀ : a0; b2 = b0 <= L+t₀ ? b0 : L+t₀;
 	
 	lnA = log(A+1); # A+1 so that when do -1 return A
 
-	# ∫_{[0,T]∩[t₀,Aₓ+t₀]}exp(-ξ(T-t))(exp(A*(t-t₀)/Aₓ)-1)dt
+	# ∫_{[0,T]∩[te,tℓ]∩[t₀,Aₓ+t₀]}exp(-ξ(T-t))(exp(A*(t-t₀)/Aₓ)-1)dt
 	I₁ = ( (a1>=b1)||(Aₓ==0.0) ? 
 	      0.0 : exp(-ξ*T-lnA/Aₓ*t₀)*1/(ξ+lnA/Aₓ)*( exp((ξ+lnA/Aₓ)*b1)-exp((ξ+lnA/Aₓ)*a1) ) -exp(-ξ*T)/ξ*(exp(ξ*b1)-exp(ξ*a1))
 	     );
 
-	# ∫_{[0,T]∩[Aₓ+t₀,L+t₀]}exp(-ξ(T-t))(exp(A-A*(t-t₀-Aₓ)/(L-Aₓ))-1)dt
+	# ∫_{[0,T]∩[te,tℓ]∩[Aₓ+t₀,L+t₀]}exp(-ξ(T-t))(exp(A-A*(t-t₀-Aₓ)/(L-Aₓ))-1)dt
 	I₂ = ( (a2>=b2)||(L==Aₓ) ?
 	      0.0 : exp(-ξ*T+lnA+lnA/(L-Aₓ)*(t₀+Aₓ))*1/(ξ-lnA/(L-Aₓ))*( exp((ξ-lnA/(L-Aₓ))*b2)-exp((ξ-lnA/(L-Aₓ))*a2)  )  -exp(-ξ*T)/ξ*(exp(ξ*b2)-exp(ξ*a2))
 	     );
@@ -221,7 +235,8 @@ function shedλ!(prm::Dict{Symbol,Float64};
 				prm[Symbol(:t,i)],prm[:T],
 				prm[Symbol(:Aₓ,i)],
 				prm[:ξ],
-				prm[Symbol(:te,i)]);
+				prm[Symbol(:te,i)],
+				prm[Symbol(:tℓ,i)]);
 	end
 
 end
@@ -279,6 +294,17 @@ function logπ!(prm::Dict{Symbol,Float64},
 		@inbounds for i=1:nmax
 			ti = Symbol(:t,i);
 			if prm[ti]>prm[:T]
+				return -Inf
+			end
+		end
+	end
+
+	# Indicator for te<=tℓ
+	if prmvary[Symbol(:te1)]||prmvary[Symbol(:tℓ1)]
+		@inbounds for i=1:nmax
+			tei = Symbol(:te,i);
+			tℓi = Symbol(:tℓ,i);
+			if prm[tei]>prm[tℓi]
 				return -Inf
 			end
 		end
@@ -342,7 +368,23 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	if prmvary[:te1]
 		@inbounds for i=1:nmax
 			tei = Symbol(:te,i);
-			prm[tei] = prmrg[tei][1]+rand(rng)*(prmrg[tei][2]-prmrg[tei][1]);
+			tℓi = Symbol(:tℓ,i);
+			if !prmvary[:tℓ1]
+				temax = prm[tℓi] <= prmrg[tei][2] ? prm[tℓi] : prmrg[tei][2];
+			else
+				temax = prmrg[tei][2];
+			end
+			prm[tei] = prmrg[tei][1]+rand(rng)*(temax-prmrg[tei][1]);
+		end
+	end
+
+	# prp density on tℓ's conditioned on tₑ is unif from tₑ to its upper rg value
+	if prmvary[:tℓ1]
+		@inbounds for i=1:nmax
+			tei = Symbol(:te,i);
+			tℓi = Symbol(:tℓ,i);
+			tℓlow = prm[tei] >= prmrg[tℓi][1] ? prm[tei] : prmrg[tℓi][1]
+			prm[tℓi] = tℓlow + rand(rng)*(prmrg[tℓi][2]-tℓlow)
 		end
 	end
 
@@ -436,6 +478,16 @@ function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	val = 0.0;
 
 	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+
+	if prmvary[:te1]&&prmvary[:tℓ1]
+		@inbounds for i=1:nmax
+			tei = Symbol(:te,i);
+			tℓi = Symbol(:tℓ,i);
+			tℓlow = prm[tei] >= prmrg[tℓi][1] ? prm[tei] : prmrg[tℓi][1];
+
+			val += -log(prmrg[tℓi][2]-tℓlow);
+		end
+	end
 	
 	#if prmvary[:A1]
 	#	@inbounds for i=1:nmax
@@ -474,9 +526,20 @@ function init!(prm::Dict{Symbol,Float64},
 	while !flagfd
 		@inbounds for key in keys(prmvary)
 			if prmvary[key]
-				prm[key] = prmrg[key][1] .+ rand(rng)*(
-						(prmrg[key][1]!=-Inf)&&(prmrg[key][2]!=Inf) ? prmrg[key][2]-prmrg[key][1] : 1.0
-						                       );
+				vlow = prmrg[key][1]==-Inf ? -3.0 : prmrg[key][1];
+				vhgh = prmrg[key][2]==Inf ? 3.0 : prmrg[key][2];
+				prm[key] = vlow + rand(rng)*(vhgh-vlow);
+
+			end
+		end
+
+		if prmvary[:tℓ1]
+			nmax = Int64(prm[:nmax]);
+			@inbounds for i=1:nmax
+				tℓi = Symbol(:tℓ,i);
+				tei = Symbol(:te,i);
+				vhgh = prmrg[tℓi][2]==Inf ? prm[tei]+10.0 : prmrg[tℓi][2];
+				prm[tℓi] = prm[tei] + rand(rng)*(vhgh-prm[tei])
 			end
 		end
 		
