@@ -13,10 +13,10 @@ function data()
 	# cap number of infected people in building
 	#  Fall 2020 Iso: 39 avg ppl from Oct 21-27 for dust collected Oct 28th
 	#  		  38 avg ppl from Oct 28th to Nov 3rd for dust collected Nov 4th
-	prm[:nmax] = 39.0; nmax = Int64(prm[:nmax]);
+	prm[:nmax] = 80.0; nmax = Int64(prm[:nmax]);
 
 	# number of infected people in the building
-	prm[:n] = 39.0;
+	prm[:n] = 80.0;
 
 	# individual infection times
 	@inbounds for i=1:nmax
@@ -98,7 +98,7 @@ function data()
 	# in mcmcrg
 	# "0.0"=>No deterministic relationships
 	# "1.0"=>Some deterministic relationships
-	prm[:flagdet] = 1.0;
+	prm[:flagdet] = 0.0;
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
@@ -140,7 +140,7 @@ function mcmcrg()
 	
 	# max permitted number of infected people in building
 	#  nmax should agree with what is in data and not be varied
-	prmrg[:nmax] = [200.0,201.0]; nmax = Int64(prmrg[:nmax][2]);
+	prmrg[:nmax] = [80.0,80.0]; nmax = Int64(prmrg[:nmax][2]);
 	prmvary[:nmax] = false;
 
 	# number of infected people in the building
@@ -151,7 +151,7 @@ function mcmcrg()
 	# individual infection times
 	@inbounds for i=1:nmax
 		sym = Symbol("t"*string(i));
-		prmrg[sym] = [-10.0,9.0]; # max t₀ should be less than the fixed T-value
+		prmrg[sym] = [-10.0,10.0]; # max t₀ should be less than the fixed T-value
 					 # for efficient sampling
 		prmvary[sym] = true;
 	end
