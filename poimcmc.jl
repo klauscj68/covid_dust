@@ -13,10 +13,10 @@ function data()
 	# cap number of infected people in building
 	#  Fall 2020 Iso: 39 avg ppl from Oct 21-27 for dust collected Oct 28th
 	#  		  38 avg ppl from Oct 28th to Nov 3rd for dust collected Nov 4th
-	prm[:nmax] = 38.0; nmax = Int64(prm[:nmax]);
+	prm[:nmax] = 39.0; nmax = Int64(prm[:nmax]);
 
 	# number of infected people in the building
-	prm[:n] = 38.0;
+	prm[:n] = 39.0;
 
 	# individual infection times
 	@inbounds for i=1:nmax
@@ -35,6 +35,15 @@ function data()
 		sym = Symbol("tℓ"*string(i));
 		prm[sym] = Inf;
 	end
+
+	# flag to say if t₀<=tₑ or t₀<=tℓ should be enforced. Useful bc
+	# different calibrations and fittings require different scenarios.
+	# Unlike other values, this is not used in prmvary and prmrg bc it
+	# is not varied during mcmc
+	#  "0.0"=>No relation enforced
+	#  "-1.0"=> t₀<=tₑ
+	#  "1.0"=> t₀<=tℓ
+	prm[:flagt] = -1.0;	
 
 	# λ-params
 	#  Γ-hyperparameters for shedding amplitude
@@ -81,10 +90,43 @@ function data()
 	#                 bag 2 199.85
 	#                 bag 3 283.398
 	#                 bag 4 3226.79
-	prm[:Y] = 172.724; 
+	prm[:Y] = 172.724;
+
+	# flag to say if any deterministic relationships exist
+	# between parameters, used in some synthetic fitting
+	# cases. Like flagt, this parameter is not varied or used
+	# in mcmcrg
+	# "0.0"=>No deterministic relationships
+	# "1.0"=>Some deterministic relationships
+	prm[:flagdet] = 1.0;
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
+end
+
+# data!
+""" 
+Enfore any deterministic relations between parameters that match the synthetic
+data generation case. Only used if flag below is set to true.
+WARNING: Determined parameters should NOT be varied in corresponding mcmc, ie
+         prmvary in mcmcrg should be false
+WARNING: Current limitation is that proposed parameters should NOT have a conditional
+         dependence on the determined parameters unless you have modified the proposal
+	 and initialization codes explicitly to accommodate.
+"""
+function data!(prm::Dict{Symbol,Float64})
+	if prm[:flagdet]!=1.0
+		return
+	end
+
+	# Individuals should leave 10 days after entering iso
+	nmax = Int64(prm[:nmax]);
+	@inbounds for i=1:nmax
+		tei = Symbol(:te,i);
+		tℓi = Symbol(:tℓ,i);
+
+		prm[tℓi] = prm[tei]+10.0;
+	end
 end
 
 # mcmcrg
@@ -193,39 +235,108 @@ function mcmcrg()
 	return prmrg,prmvary
 end
 
-# shedλ
+# shedλI₁
+""" 
+Ancillary routine used by shedλ to compute integrals of the first type, whose
+domain of integration is in rising phase of shedding function. The integral
+is
+∫ᵇₐexp(-ξ*(T-t))*(exp((t-t₀)/Aₓ*ln(A+1))-1)dt
 """
-Compute the shedding μp = ∫^min(T,tℓ)_max(0,te) exp[-ξ*(T-t)]λ(t-t₀;θ)dt 
-as function of input parameters, where dust is collected from [0,T]. Multiple 
-dispatch for case of single param values and a dictionary. Also include a 
-mutating version of the dictionary case for mem alloc. Right now routine can 
-handle Aₓ=0 or L but not ξ=0. When flagsynth is set to true, the code assumes
-a person enters the building (eg isolation) a fixed interval after becoming 
-infected
-"""
-function shedλ(A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
-	       ξ::Float64,tₑ::Float64,tℓ::Float64;flagsynth::Bool=true)
-	if flagsynth
-		tₑ = t₀+1;
+function shedλI₁(a::Float64,b::Float64,
+		 A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
+		 ξ::Float64,tₑ::Float64,tℓ::Float64)
+	val = 0.0;
+	if b<a
+		return val
 	end
 
-	a0 = 0.0 >= tₑ ? 0.0 : tₑ; b0 = T <= tℓ ? T : tℓ;
-	a1 = t₀ >= a0 ? t₀ : a0; b1 = b0 <= Aₓ+t₀ ? b : Aₓ+t₀;
-	a2 = Aₓ+t₀ >= a0 ? Aₓ+t₀ : a0; b2 = b0 <= L+t₀ ? b0 : L+t₀;
+	η = log(A+1)/Aₓ+ξ;
+	val += exp(η*b)-exp(η*a);
+	val *= exp(-log(A+1)/Aₓ*t₀)/η;
+
+	val += -1/ξ*(exp(ξ*b)-exp(ξ*a));
+
+	val *= exp(-ξ*T);
+
+	return val
+end
+
+# shedλI₂
+"""
+Ancillary routine used by shedλ to compute integrals of the second type, whose
+domain of integration is in the declining phase of shedding function. The integral
+is
+∫ᵇₐexp(-ξ*(T-t))*( exp(( 1-(t-t₀-Aₓ)/(L-Aₓ) )*ln(A+1)) -1 )dt
+"""
+function shedλI₂(a::Float64,b::Float64,
+		 A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
+		 ξ::Float64,tₑ::Float64,tℓ::Float64)
+	val = 0.0;
+	if b<a
+		return val
+	end
+
+	η = ξ-log(A+1)/(L-Aₓ);
+	val += exp(η*b)-exp(η*a);
+	val *= exp(log(A+1)*(1+(t₀+Aₓ)/(L-Aₓ)))/η;
 	
-	lnA = log(A+1); # A+1 so that when do -1 return A
+	val += -1/ξ*(exp(ξ*b)-exp(ξ*a));
 
-	# ∫_{[0,T]∩[te,tℓ]∩[t₀,Aₓ+t₀]}exp(-ξ(T-t))(exp(A*(t-t₀)/Aₓ)-1)dt
-	I₁ = ( (a1>=b1)||(Aₓ==0.0) ? 
-	      0.0 : exp(-ξ*T-lnA/Aₓ*t₀)*1/(ξ+lnA/Aₓ)*( exp((ξ+lnA/Aₓ)*b1)-exp((ξ+lnA/Aₓ)*a1) ) -exp(-ξ*T)/ξ*(exp(ξ*b1)-exp(ξ*a1))
-	     );
+	val *= exp(-ξ*T);
 
-	# ∫_{[0,T]∩[te,tℓ]∩[Aₓ+t₀,L+t₀]}exp(-ξ(T-t))(exp(A-A*(t-t₀-Aₓ)/(L-Aₓ))-1)dt
-	I₂ = ( (a2>=b2)||(L==Aₓ) ?
-	      0.0 : exp(-ξ*T+lnA+lnA/(L-Aₓ)*(t₀+Aₓ))*1/(ξ-lnA/(L-Aₓ))*( exp((ξ-lnA/(L-Aₓ))*b2)-exp((ξ-lnA/(L-Aₓ))*a2)  )  -exp(-ξ*T)/ξ*(exp(ξ*b2)-exp(ξ*a2))
-	     );
-	val = I₁+I₂;
-		
+	return val
+end
+
+# shedλ
+"""
+Compute the shedding μp = ∫_D exp[-ξ*(T-t)]λ(t-t₀;θ)dt 
+as function of input parameters, where dust is collected at time T. Multiple 
+dispatch for case of single param values and a dictionary. Also include a 
+mutating version of the dictionary case for mem alloc. DONT DO flagsynth bc
+priors are blind to it
+"""
+function shedλ(A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
+	       ξ::Float64,tₑ::Float64,tℓ::Float64)
+	
+	val = 0.0;
+	if tₑ<tℓ
+		# Type 1 integral over D = [max(t₀,tₑ),min(T,tℓ)]∩[t₀,t₀+Aₓ]
+		a = tₑ>=t₀ ? tₑ : t₀; b = (T<tℓ ? T : tℓ)<t₀+Aₓ ? (T<tℓ ? T : tℓ) : t₀+Aₓ;  
+		val += shedλI₁(a,b,
+			       A,L,t₀,T,Aₓ,
+			       ξ,tₑ,tℓ);
+
+		# Type 2 integral over D = [max(t₀,tₑ),min(T,tℓ)]∩[t₀+Aₓ,t₀+L]
+		a = tₑ>=t₀+Aₓ ? tₑ : t₀+Aₓ; b = (T<tℓ ? T : tℓ)<t₀+L ? (T<tℓ ? T : tℓ) : t₀+L;
+		val += shedλI₂(a,b,
+			       A,L,t₀,T,Aₓ,
+			       ξ,tₑ,tℓ);
+	elseif tℓ<tₑ
+		# Type 1 integral over D = [t₀,min(T,tℓ)]∩[t₀,t₀+Aₓ]
+		a = t₀; b = (T<=tℓ ? T : tℓ)<=t₀+Aₓ ? (T<=tℓ ? T : tℓ) : t₀+Aₓ;
+		val += shedλI₁(a,b,
+			       A,L,t₀,T,Aₓ,
+			       ξ,tₑ,tℓ);
+
+		# Type 2 integral over D = [t₀,min(T,tℓ)]∩[t₀+Aₓ,t₀+L]
+		a = t₀+Aₓ; b = (T<=tℓ ? T : tℓ)<=t₀+L ? (T<=tℓ ? T : tℓ) : t₀+L;
+		val += shedλI₂(a,b,
+			       A,L,t₀,T,Aₓ,
+			       ξ,tₑ,tℓ);
+
+		# Type 1 integral over D = [max(tₑ,t₀),T]∩[t₀,t₀+Aₓ]
+		a = tₑ>=t₀ ? tₑ : t₀; b = T<=t₀+Aₓ ? T : t₀+Aₓ;
+		val += shedλI₁(a,b,
+			       A,L,t₀,T,Aₓ,
+			       ξ,tₑ,tℓ);
+
+		# Type 2 integral over D = [max(tₑ,t₀),T]∩[t₀+Aₓ,t₀+L]
+		a = tₑ>=t₀ ? tₑ : t₀; b = T<=t₀+L ? T : t₀+L;
+		val += shedλI₂(a,b,
+			       A,L,t₀,T,Aₓ,
+			       ξ,tₑ,tℓ);
+	end
+
 	return val > 0 ? val : 1e-16
 end
 function shedλ!(prm::Dict{Symbol,Float64};
@@ -299,6 +410,28 @@ function logπ!(prm::Dict{Symbol,Float64},
 		end
 	end
 
+	#  Indicator for t₀<=te if specified in flagt
+	if (prm[:flagt]==-1.0)&&(prmvary[Symbol(:t1)]||prmvary[Symbol(:te1)])
+		@inbounds for i=1:nmax
+			ti = Symbol(:t,i);
+			tei = Symbol(:te,i);
+			if ti>tei
+				return -Inf
+			end
+		end
+	end
+
+	# Indicator for t₀<=tℓ
+	if (prm[:flagt]==1.0)&&(prmvary[Symbol(:t1)]||prmvary[Symbol(:tℓ1)])
+		@inbounds for i=1:nmax
+			ti = Symbol(:t,i);
+			tℓi = Symbol(:tℓ,i);
+			if ti>tℓi
+				return -Inf
+			end
+		end
+	end
+
 	# Indicator for te<=tℓ
 	if prmvary[Symbol(:te1)]||prmvary[Symbol(:tℓ1)]
 		@inbounds for i=1:nmax
@@ -310,7 +443,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 		end
 	end
 	
-	# Priors on Ax, L, A
+	# Conditional priors on Ax, L, A
 	val1 = 0.0;
 	#  Ax|μ,σ is N(Aₓμ,Aₓσ)
 	#@inbounds for i=1:nmax
@@ -388,11 +521,20 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		end
 	end
 
-	# prp density on t₀'s is unif
+	# prp density on t₀'s is unif potentially conditioned on (tₑ,tℓ)
 	if prmvary[:t1]
 		@inbounds for i=1:nmax
 			ti = Symbol(:t,i);
-			prm[ti] = prmrg[ti][1]+rand(rng)*(prmrg[ti][2]-prmrg[ti][1]);
+			if prm0[:flagt]==-1.0
+				tei = Symbol(:te,i);
+				tupr = prm[tei]<=prmrg[ti][2] ? prm[tei] : prmrg[ti][2];
+			elseif prm0[:flagt]==1.0
+				tℓi = Symbol(:tℓ,i);
+				tupr = prm[tℓi]<=prmrg[ti][2] ? prm[tℓi] : prmrg[ti][2];
+			else
+				tupr = prmrg[ti][2];
+			end
+			prm[ti] = prmrg[ti][1]+rand(rng)*(tupr-prmrg[ti][1]);
 		end
 	end
 
@@ -409,7 +551,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	#  Point is if alpha and beta aren't in cnst reg, the chain automatically rejects prm
 	#  and resets to prm0. Used bc Julia wont sample a Gamma with nonpositive hyperparams
 	if (prm[:Γα]<=0)||(prm[:Γβ]<=0)
-		@inbounds for key in keys(prm0)	
+		@inbounds for key in keys(prmvary)	
 			prm[key] = prm0[key];
 		end
 		return
@@ -461,6 +603,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		end
 	end
 
+	data!(prm);
 end
 
 # logρ!
@@ -486,6 +629,16 @@ function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 			tℓlow = prm[tei] >= prmrg[tℓi][1] ? prm[tei] : prmrg[tℓi][1];
 
 			val += -log(prmrg[tℓi][2]-tℓlow);
+		end
+	end
+
+	if (prm0[:flagt]!=0.0)&&(prmvary[:t1])
+		@inbounds for i=1:nmax
+			ti = Symbol(:t,i);
+			teℓi = prm0[:flagt]==-1.0 ? Symbol(:te,i) : Symbol(:tℓ,i);
+			tupr = prm[teℓi]<=prmrg[ti][2] ? prm[teℓi] : prmrg[ti][2];
+
+			val += -log(tupr - prmrg[ti][1])
 		end
 	end
 	
@@ -522,7 +675,7 @@ function init!(prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool}; 
 	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
 	       rng::MersenneTwister=MersenneTwister())
-	flagfd = false;
+	flagfd = false; nmax::Int64 = prm[:nmax];
 	while !flagfd
 		@inbounds for key in keys(prmvary)
 			if prmvary[key]
@@ -542,7 +695,18 @@ function init!(prm::Dict{Symbol,Float64},
 				prm[tℓi] = prm[tei] + rand(rng)*(vhgh-prm[tei])
 			end
 		end
-		
+
+		if (prm[:flagt]!=0.0)&&(prmvary[:t1])
+			@inbounds for i=1:nmax
+				ti = Symbol(:t,i);
+				teℓi = prm[:flagt]==-1.0 ? Symbol(:te,i) : Symbol(:tℓ,i);
+				tupr = prm[teℓi]<=prmrg[ti][2] ? prm[teℓi] : prmrg[ti][2];
+
+				prm[ti] = prmrg[ti][1]+rand(rng)*(tupr-prmrg[ti][1]);
+			end
+		end
+
+		data!(prm);
 		if logπ!(prm,prmrg,prmvary;λval=λval) != -Inf
 			flagfd = true;
 		end
@@ -586,7 +750,7 @@ function mcmcsmp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		coin = rand(rng) |> log;
 		if coin <=logmh!(prm0,prm,prmrg,prmvary;λval=λval)
 			# accept
-			@inbounds for key in keys(prm0)
+			@inbounds for key in keys(prmvary)
 				if prmvary[key]
 					prm0[key] = prm[key];
 				end
