@@ -10,13 +10,17 @@ Return dictionary with default parameter values
 function data()
 	prm = Dict{Symbol,Float64}();
 	
-	# cap number of infected people in building
+	# cap number of infected people across all buildings
 	#  Fall 2020 Iso: 39 avg ppl from Oct 21-27 for dust collected Oct 28th
 	#  		  38 avg ppl from Oct 28th to Nov 3rd for dust collected Nov 4th
-	prm[:nmax] = 80.0; nmax = Int64(prm[:nmax]);
+	prm[:nmax] = 80.0; nmax::Int64 = prm[:nmax];
 
-	# number of infected people in the building
-	prm[:n] = 80.0;
+	# number of buildings (several buildings used in calibration)
+	prm[:nbld] = 2.0; nbld::Int64 = prm[:nbld];
+
+	# number of infected people in each building
+	prm[:n1] = 50.0;
+	prm[:n2] = 30.0;
 
 	# individual infection times
 	@inbounds for i=1:nmax
@@ -85,12 +89,13 @@ function data()
 	# Time after time 0 at which dust collected
 	prm[:T] = 10.0;
 
-	# dust measurement copies/mg dust
+	# dust measurement copies/mg dust in each building
 	#  Fall 2020 Iso: bag 1 145.598
 	#                 bag 2 199.85
 	#                 bag 3 283.398
 	#                 bag 4 3226.79
-	prm[:Y] = 172.724;
+	prm[:Y1] = 172.724;
+	prm[:Y2] = 150.0;
 
 	# flag to say if any deterministic relationships exist
 	# between parameters, used in some synthetic fitting
@@ -138,15 +143,23 @@ function mcmcrg()
 	prmrg = Dict{Symbol,Vector{Float64}}();
 	prmvary = Dict{Symbol,Bool}();
 	
-	# max permitted number of infected people in building
+	# max permitted number of infected people across all buildings
 	#  nmax should agree with what is in data and not be varied
-	prmrg[:nmax] = [80.0,80.0]; nmax = Int64(prmrg[:nmax][2]);
+	prmrg[:nmax] = [80.0,80.0]; nmax::Int64 = prmrg[:nmax][2];
 	prmvary[:nmax] = false;
 
-	# number of infected people in the building
+	# max number of buildings
+	#  nbld should agree with what is in data and not be varied
+	prmrg[:nbld] = [2.0,2.0]; nbld::Int64 = prmrg[:nbld][2];
+	prmvary[:nbld] = false;
+
+	# number of infected people in each building
 	#  bound by nmax enforced in prior
-	prmrg[:n] = [1.0,200.0]; # For rej stats have be 1 less than nmax
-	prmvary[:n] = false;
+	@inbounds for i=1:nbld
+		ni = Symbol(:n,i);
+		prmrg[ni] = [1.0,200.0];
+		prmvary[ni] = false;
+	end
 
 	# individual infection times
 	@inbounds for i=1:nmax
@@ -174,10 +187,10 @@ function mcmcrg()
 
 	# λ-params # maybe 50% pickup in dorms by vacuum
 	#  Γ-distribution hyperparameters for amplitude
-	prmrg[:Γα] = [0.0,10000.0];
-	prmvary[:Γα] = false;
+	prmrg[:Γα] = [0.0,25.0];
+	prmvary[:Γα] = true;
 
-	prmrg[:Γβ] = [0.0,1.0];
+	prmrg[:Γβ] = [0.0,12.5];
 	prmvary[:Γβ] = true;
 
 	#  Normal-distribution hyperparameters for Aₓ increment
@@ -228,9 +241,14 @@ function mcmcrg()
 	prmrg[:T] = [5.0,10.0];
 	prmvary[:T] = false; # Current code needs false because prp doesn't vary
 
-	# dust measurement copies/mg dust
-	prmrg[:Y] = [0.0,1000.0]; # with Delta numbers over 1000 can go up to 10,000
-	prmvary[:Y] = false; # Current code needs false becase prp doesn't vary
+	# dust measurement copies/mg dust in each building
+	@inbounds for i=1:nbld
+		Yi = Symbol(:Y,i);
+		prmrg[Yi] = [0.0,1000.0]; # with Delta numbers over 1000 can go up to 10,000
+		prmvary[Yi] = false; # Current code needs false becase prp doesn't vary
+	end
+
+	@assert (!prmvary[:nmax])&&(!prmvary[:nbld])&&(!prmvary[:T])&&(!prmvary[:Y1]) "illegal parameter varied in mcmcrg"
 
 	return prmrg,prmvary
 end
@@ -384,15 +402,12 @@ Evaluate the log unnormalized posterior density for given choice of model parame
 prm::Dict storing the parameters we are evaluating
 prmrg:: Dict storing the ranges parameters must belong to
 prmvary:: Dict storing which parameters are varied
-flagλval:: Bool saying if λval has already been evaluated for this param 
-           choice or not (to save computation)
 """
 function logπ!(prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
-	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
-	       flagλval::Bool=true)	
+	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])))	
 	
-	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+	nbld::Int64 = floor(prm[:nbld]); nmax::Int64 = floor(prm[:nmax]);
 	# Indicator prior on all params save Aₓ,L,A
 	@inbounds for key in keys(prmvary)
 		if prmvary[key]&&( (prm[key]<prmrg[key][1])||(prm[key]>prmrg[key][2]) )
@@ -466,14 +481,18 @@ function logπ!(prm::Dict{Symbol,Float64},
 	#end
 
 	# Likelihood
-	if flagλval
-		shedλ!(prm;λval=λval);
+	shedλ!(prm;λval=λval);
+	val2 = 0.0; pos = 0;
+	@inbounds for i=1:nbld
+		ni = Symbol(:n,i); n::Int64 = floor(prm[ni]);
+		Yi = Symbol(:Y,i); Y = prm[Yi];
+		val = 0.0;
+		@inbounds for j=pos+1:pos+n
+			val += λval[j];
+		end
+		val2 += -val + floor(Y)*log(val);
+		pos += n;
 	end
-	val2 = 0.0;
-	@inbounds for i=1:n
-		val2 += λval[i];
-	end
-	val2 = -val2 + floor(prm[:Y])*log(val2);	
 	
 	return val1+val2
 end
@@ -486,10 +505,13 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		  prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
 		  rng::MersenneTwister=MersenneTwister())
-	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));	
+	nbld::Int64 = floor(prm[:nbld]); nmax::Int64 = floor(prm[:nmax]);	
 	# prp density on n unif
-	if prmvary[:n]
-		prm[:n] = prmrg[:n][1]+rand(rng)*(prmrg[:n][2]-prmrg[:n][1])
+	if prmvary[:n1]
+		@inbounds for i=1:nbld
+			ni = Symbol(:n,i);
+			prm[ni] = prmrg[ni][1]+rand(rng)*(prmrg[ni][2]-prmrg[ni][1])
+		end
 	end
 
 	# prp density on ξ is uniform
@@ -616,11 +638,10 @@ is symmetric depending only on |x-y| which is same y|x or x|y.
 """
 function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
-	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])),
-	       flagλval::Bool=true)
+	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])))
 	val = 0.0;
 
-	n = Int64(floor(prm[:n])); nmax = Int64(floor(prm[:nmax]));
+	nmax::Int64 = floor(prm[:nmax]);
 
 	if prmvary[:te1]&&prmvary[:tℓ1]
 		@inbounds for i=1:nmax
@@ -797,6 +818,7 @@ function mcmcrun(nsmp::Int64;
 
 	# run mcmc
 	prg = 0.0;
+	println("Progress through mcmc: $prg/1 ...");
 	@inbounds for i=1:nsmp
 		mhrej[i] = mcmcsmp!(prm0,prm,prmrg,prmvary;
 			            λval=λval,rng=rng,ncyc=ncyc);
@@ -804,15 +826,16 @@ function mcmcrun(nsmp::Int64;
 		wrtprm!(prm0,vkeys,smp);
 
 		while i/nsmp>=prg+Δprg
+			prg+=Δprg;
 			println("Progress through mcmc: $prg/1 ...");
 			CSV.write("MCMCsmp.csv",[DataFrame(:prm=>String.(vkeys)) DataFrame(SMP[:,1:i])], writeheader=false,append=false);
 			CSV.write("rejstats.csv",DataFrame(:rejct=>mhrej));
 			mysaverng(rng);
-			prg+=Δprg;
 		end
 	end
 
 	# Save final csv and report rejection rates
+	println("Progress through mcmc: 1.0/1 ...");
 	CSV.write("MCMCsmp.csv",[DataFrame(:prm=>String.(vkeys)) DataFrame(SMP[:,1:nsmp])], writeheader=false,append=false);
 	CSV.write("rejstats.csv",DataFrame(:rejct=>mhrej),append=false);
 	mysaverng(rng);
