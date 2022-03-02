@@ -253,110 +253,73 @@ function mcmcrg()
 	return prmrg,prmvary
 end
 
-# shedλI₁
-""" 
-Ancillary routine used by shedλ to compute integrals of the first type, whose
-domain of integration is in rising phase of shedding function. The integral
-is
-∫ᵇₐexp(-ξ*(T-t))*(exp((t-t₀)/Aₓ*ln(A+1))-1)dt
 """
-function shedλI₁(a::Float64,b::Float64,
-		 A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
-		 ξ::Float64,tₑ::Float64,tℓ::Float64)
-	val = 0.0;
-	if b<a
-		return val
-	end
-
-	η = log(A+1)/Aₓ+ξ;
-	val += exp(η*b)-exp(η*a);
-	val *= exp(-log(A+1)/Aₓ*t₀)/η;
-
-	val += -1/ξ*(exp(ξ*b)-exp(ξ*a));
-
-	val *= exp(-ξ*T);
-
-	return val
+Ancilliary routine for computing the exponential decay integrals that show up in likelihood function
+Compute ∫ᵇₐexp(-ξ*(T-s))( exp(ω*(s-γ))-1 )ds = 
+           exp(-ξ*T)*[
+                      exp(-ω*γ)/(ξ+ω){exp((ξ+ω)b)-exp((ξ+ω)a)}
+                      -1/ξ*{exp(ξ*b)-exp(ξ*a)}
+                     ]
+"""
+function shedλI(a::Float64,b::Float64,
+		ξ::Float64,T::Float64,ω::Float64,γ::Float64)
+    val = 0.0;
+    if a>b
+        return val
+    end
+    
+    η = ξ+ω;
+    val = exp(η*b)-exp(η*a);
+    val *= exp(-ω*γ)/η;
+    
+    val -= 1/ξ*(exp(ξ*b)-exp(ξ*a));
+    
+    val *= exp(-ξ*T);
+    
+    return val
 end
 
-# shedλI₂
 """
-Ancillary routine used by shedλ to compute integrals of the second type, whose
-domain of integration is in the declining phase of shedding function. The integral
-is
-∫ᵇₐexp(-ξ*(T-t))*( exp(( 1-(t-t₀-Aₓ)/(L-Aₓ) )*ln(A+1)) -1 )dt
+Compute the μp = ∫_D exp(-ξ*(T-t))*λ(t,θ)dt where λ is the shedding
+function described in Overleaf. Additional versions of shedλ are 
+included for multiple dispatch.
 """
-function shedλI₂(a::Float64,b::Float64,
-		 A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
-		 ξ::Float64,tₑ::Float64,tℓ::Float64)
-	val = 0.0;
-	if b<a
-		return val
-	end
-
-	η = ξ-log(A+1)/(L-Aₓ);
-	val += exp(η*b)-exp(η*a);
-	val *= exp(log(A+1)*(1+(t₀+Aₓ)/(L-Aₓ)))/η;
-	
-	val += -1/ξ*(exp(ξ*b)-exp(ξ*a));
-
-	val *= exp(-ξ*T);
-
-	return val
+function shedλ(A::Float64,L::Float64,t0::Float64,
+	       T::Float64,Ax::Float64,ξ::Float64,
+	       te::Float64,tℓ::Float64)
+    val = 1e-16;
+    
+    if te<tℓ
+        # I₁=∫exp(-ξ*(T-s))*( exp(log(A+1)/Aₓ)*(s-t0) - 1 )ds
+        a = maximum([0.0,te,t0]); b=minimum([T,tℓ,t0+Ax]);
+        I₁ = shedλI(a,b,ξ,T,log(A+1)/Ax,t0);
+        
+        # I₂=∫exp(-ξ*(T-s))( exp(log(A+1)/(L-Aₓ)*(t0+L-s) - 1 )ds
+        a = maximum([0.0,te,t0+Ax]); b = minimum([T,tℓ,t0+L]);
+        I₂ = shedλI(a,b,ξ,T,-log(A+1)/(L-Ax),t0+L);
+        
+        val += I₁+I₂;
+    elseif tℓ<te
+        # I₁,I₂=∫exp(-ξ*(T-s))*( exp(log(A+1)/Aₓ)*(s-t0) - 1 )ds
+        a = maximum([0.0,t0]); b = minimum([T,tℓ,t0+Ax]);
+        I₁ = shedλI(a,b,ξ,T,log(A+1)/Ax,t0);
+        
+        a = maximum([0.0,te,t0]); b = minimum([T,t0+Ax]);
+        I₂ = shedλI(a,b,ξ,T,log(A+1)/Ax,t0);
+        
+        # I₃,I₄=∫exp(-ξ*(T-s))( exp(log(A+1)/(L-Aₓ)*(t0+L-s) - 1 )ds
+        a = maximum([0.0,t0+Ax]); b = minimum([T,tℓ,t0+L]);
+        I₃ = shedλI(a,b,ξ,T,-log(A+1)/(L-Ax),t0+L);
+        
+        a = maximum([0.0,te,t0+Ax]); minimum([T,t0+L]);
+        I₄ = shedλI(a,b,ξ,T,-log(A+1)/(L-Ax),t0+L);
+        
+        val += I₁+I₂+I₃+I₄
+    end
+    
+    return val
 end
 
-# shedλ
-"""
-Compute the shedding μp = ∫_D exp[-ξ*(T-t)]λ(t-t₀;θ)dt 
-as function of input parameters, where dust is collected at time T. Multiple 
-dispatch for case of single param values and a dictionary. Also include a 
-mutating version of the dictionary case for mem alloc. DONT DO flagsynth bc
-priors are blind to it
-"""
-function shedλ(A::Float64,L::Float64,t₀::Float64,T::Float64,Aₓ::Float64,
-	       ξ::Float64,tₑ::Float64,tℓ::Float64)
-	
-	val = 0.0;
-	if tₑ<tℓ
-		# Type 1 integral over D = [max(t₀,tₑ),min(T,tℓ)]∩[t₀,t₀+Aₓ]
-		a = tₑ>=t₀ ? tₑ : t₀; b = (T<tℓ ? T : tℓ)<t₀+Aₓ ? (T<tℓ ? T : tℓ) : t₀+Aₓ;  
-		val += shedλI₁(a,b,
-			       A,L,t₀,T,Aₓ,
-			       ξ,tₑ,tℓ);
-
-		# Type 2 integral over D = [max(t₀,tₑ),min(T,tℓ)]∩[t₀+Aₓ,t₀+L]
-		a = tₑ>=t₀+Aₓ ? tₑ : t₀+Aₓ; b = (T<tℓ ? T : tℓ)<t₀+L ? (T<tℓ ? T : tℓ) : t₀+L;
-		val += shedλI₂(a,b,
-			       A,L,t₀,T,Aₓ,
-			       ξ,tₑ,tℓ);
-	elseif tℓ<tₑ
-		# Type 1 integral over D = [t₀,min(T,tℓ)]∩[t₀,t₀+Aₓ]
-		a = t₀; b = (T<=tℓ ? T : tℓ)<=t₀+Aₓ ? (T<=tℓ ? T : tℓ) : t₀+Aₓ;
-		val += shedλI₁(a,b,
-			       A,L,t₀,T,Aₓ,
-			       ξ,tₑ,tℓ);
-
-		# Type 2 integral over D = [t₀,min(T,tℓ)]∩[t₀+Aₓ,t₀+L]
-		a = t₀+Aₓ; b = (T<=tℓ ? T : tℓ)<=t₀+L ? (T<=tℓ ? T : tℓ) : t₀+L;
-		val += shedλI₂(a,b,
-			       A,L,t₀,T,Aₓ,
-			       ξ,tₑ,tℓ);
-
-		# Type 1 integral over D = [max(tₑ,t₀),T]∩[t₀,t₀+Aₓ]
-		a = tₑ>=t₀ ? tₑ : t₀; b = T<=t₀+Aₓ ? T : t₀+Aₓ;
-		val += shedλI₁(a,b,
-			       A,L,t₀,T,Aₓ,
-			       ξ,tₑ,tℓ);
-
-		# Type 2 integral over D = [max(tₑ,t₀),T]∩[t₀+Aₓ,t₀+L]
-		a = tₑ>=t₀ ? tₑ : t₀; b = T<=t₀+L ? T : t₀+L;
-		val += shedλI₂(a,b,
-			       A,L,t₀,T,Aₓ,
-			       ξ,tₑ,tℓ);
-	end
-
-	return val > 0 ? val : 1e-16
-end
 function shedλ!(prm::Dict{Symbol,Float64};
 		λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])));
 	@inbounds for i=1:Int64(prm[:nmax])
@@ -430,7 +393,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 		@inbounds for i=1:nmax
 			ti = Symbol(:t,i);
 			tei = Symbol(:te,i);
-			if ti>tei
+			if prm[ti]>prm[tei]
 				return -Inf
 			end
 		end
@@ -441,7 +404,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 		@inbounds for i=1:nmax
 			ti = Symbol(:t,i);
 			tℓi = Symbol(:tℓ,i);
-			if ti>tℓi
+			if prm[ti]>prm[tℓi]
 				return -Inf
 			end
 		end
