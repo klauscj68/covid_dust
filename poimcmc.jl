@@ -16,11 +16,11 @@ function data()
 	prm[:nmax] = 80.0; nmax::Int64 = prm[:nmax];
 
 	# number of buildings (several buildings used in calibration)
-	prm[:nbld] = 2.0; nbld::Int64 = prm[:nbld];
+	prm[:nbld] = 1.0; nbld::Int64 = prm[:nbld];
 
 	# number of infected people in each building
-	prm[:n1] = 50.0;
-	prm[:n2] = 30.0;
+	prm[:n1] = 80.0;
+	#prm[:n2] = 30.0;
 
 	# individual infection times
 	@inbounds for i=1:nmax
@@ -40,13 +40,12 @@ function data()
 		prm[sym] = Inf;
 	end
 
-	# flag to say if t₀<=tₑ or t₀<=tℓ should be enforced. Useful bc
-	# different calibrations and fittings require different scenarios.
-	# Unlike other values, this is not used in prmvary and prmrg bc it
-	# is not varied during mcmc
-	#  "0.0"=>No relation enforced
-	#  "-1.0"=> t₀<=tₑ
-	#  "1.0"=> t₀<=tℓ
+	# flag to say if running a calibration for an iso building,
+	# an inference for buildings based on dust measurement, or a 
+	# calibration based on a residential buildings
+	#  "0.0"=>Inference of buildings
+	#  "-1.0"=> Calibration based on iso buildings
+	#  "1.0"=> Caliibration based on residential buildings
 	prm[:flagt] = -1.0;	
 
 	# λ-params
@@ -95,7 +94,7 @@ function data()
 	#                 bag 3 283.398
 	#                 bag 4 3226.79
 	prm[:Y1] = 172.724;
-	prm[:Y2] = 150.0;
+	#prm[:Y2] = 150.0;
 
 	# flag to say if any deterministic relationships exist
 	# between parameters, used in some synthetic fitting
@@ -150,7 +149,7 @@ function mcmcrg()
 
 	# max number of buildings
 	#  nbld should agree with what is in data and not be varied
-	prmrg[:nbld] = [2.0,2.0]; nbld::Int64 = prmrg[:nbld][2];
+	prmrg[:nbld] = [1.0,1.0]; nbld::Int64 = prmrg[:nbld][2];
 	prmvary[:nbld] = false;
 
 	# number of infected people in each building
@@ -164,16 +163,15 @@ function mcmcrg()
 	# individual infection times
 	@inbounds for i=1:nmax
 		sym = Symbol("t"*string(i));
-		prmrg[sym] = [-10.0,10.0]; # max t₀ should be less than the fixed T-value
-					 # for efficient sampling
-		prmvary[sym] = true;
+		prmrg[sym] = [-Inf,Inf]; # should be -Inf,Inf if running an  
+		prmvary[sym] = true;     # iso/res calibration since then it is
+		                         # accounted for by a conditional 
+					 # prior
 	end
 
 	# individuals taking up residence in building times
 	@inbounds for i=1:nmax
-		sym = Symbol("te"*string(i)); #shedλ will integrate curve from 
-		                              #[max(0,te),T] and vacate integral
-					      #if te>T
+		sym = Symbol("te"*string(i)); 
 		prmrg[sym] = [-9.0,10.0];
 		prmvary[sym] = false;
 	end
@@ -188,7 +186,7 @@ function mcmcrg()
 	# λ-params # maybe 50% pickup in dorms by vacuum
 	#  Γ-distribution hyperparameters for amplitude
 	prmrg[:Γα] = [0.0,25.0];
-	prmvary[:Γα] = true;
+	prmvary[:Γα] = false;
 
 	prmrg[:Γβ] = [0.0,12.5];
 	prmvary[:Γβ] = true;
@@ -207,30 +205,27 @@ function mcmcrg()
 	prmrg[:Lσ] = [0.0,0.25];
 	prmvary[:Lσ] = false;
 
-
 	#  shedding amplitude
 	@inbounds for i=1:nmax
 		sym = Symbol("A"*string(i));
-		prmrg[sym] = [0.0,Inf];
-		prmvary[sym] = true;
+		prmrg[sym] = [0.0,Inf]; # Should be 0,Inf if varied since
+		prmvary[sym] = true;    # handled by a Γ conditional prior
 	end
 
 	#  shedding amplitude position
-	#   presently prp! uses a Unif(Tri) for LxAx and could
-	#   have problem if L is varied while Ax is not. Similarly
-	#   min permitted value of Ax should be <= min permitted
-	#   value of L
 	@inbounds for i=1:nmax
 		sym = Symbol("Aₓ"*string(i));
-		prmrg[sym] = [-Inf,Inf];
-		prmvary[sym] = true;
+		prmrg[sym] = [-Inf,Inf]; # Should be -Inf,Inf if varied
+		prmvary[sym] = true;     # since handled by a normal 
+		                         # conditional prior
 	end
 
 	#  shedding duration 
 	@inbounds for i=1:nmax
 		sym = Symbol("L"*string(i));
-		prmrg[sym] = [-Inf,Inf];
-		prmvary[sym] = true;
+		prmrg[sym] = [-Inf,Inf]; # Should be -Inf,Inf if varied 
+		prmvary[sym] = true;     # since handled by a normal 
+		                         # conditional prior
 	end
 
 	# particle decay rate
@@ -339,29 +334,10 @@ function shedλ(prm::Dict{Symbol,Float64})
 	return λval
 end
 
-# logΓ
-"""
-Compute log density of a Γ-distribution
-"""
-function logΓ(α::Float64,β::Float64,x::Float64)
-	val = x>0 ? α*log(β)+(α-1)*log(x) - β*log(x) - log(gamma(α)) : -Inf;
-	
-	return val
-end
-
-# lognrm
-"""
-Compute log density of a normal distribution
-"""
-function lognrm(μ::Float64,σ::Float64,x::Float64)
-	val = -0.5*log(2*π) - log(σ) - 0.5*( (x-μ)/σ )^2;
-
-	return val
-end
-
 # logπ!
 """
-Evaluate the log unnormalized posterior density for given choice of model parameters
+Evaluate the log unnormalized posterior density for given choice of model parameters.
+Only considers factors that do not cancel in the Metropolis-Hastings ratio.
 prm::Dict storing the parameters we are evaluating
 prmrg:: Dict storing the ranges parameters must belong to
 prmvary:: Dict storing which parameters are varied
@@ -371,77 +347,26 @@ function logπ!(prm::Dict{Symbol,Float64},
 	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])))	
 	
 	nbld::Int64 = floor(prm[:nbld]); nmax::Int64 = floor(prm[:nmax]);
-	# Indicator prior on all params save Aₓ,L,A
-	@inbounds for key in keys(prmvary)
-		if prmvary[key]&&( (prm[key]<prmrg[key][1])||(prm[key]>prmrg[key][2]) )
-			return -Inf
-		end
-	end
-	
-	#  Indicator for t₀<=T
-	if prmvary[Symbol(:t1)]
-		@inbounds for i=1:nmax
-			ti = Symbol(:t,i);
-			if prm[ti]>prm[:T]
-				return -Inf
-			end
-		end
+	# Prior contribution on hyper parameters α,β
+	if prmvary[:Γα]&&*( (prm[:flagt]==-1.0)||(prm[:flagt]==1.0) )
+		# Calibration run so uniform prior on Γ-hypers
+		val1= ( (prm[:Γα]<prmrg[:Γα][1])||(prm[:Γα]>prmrg[:Γα][2]) ? -Inf : 0.0 );
+	elseif prmvary[:Γα]&&( prm[:flagt]==0.0 );
+		# Estimation run so use calibtrated prior
+		@error "Havent calibrated yet"
 	end
 
-	#  Indicator for t₀<=te if specified in flagt
-	if (prm[:flagt]==-1.0)&&(prmvary[Symbol(:t1)]||prmvary[Symbol(:te1)])
-		@inbounds for i=1:nmax
-			ti = Symbol(:t,i);
-			tei = Symbol(:te,i);
-			if prm[ti]>prm[tei]
-				return -Inf
-			end
-		end
+	if prmvary[:Γβ]&&*( (prm[:flagt]==-1.0)||(prm[:flagt]==1.0) )
+		# Calibration run so uniform prior on Γ-hypers
+		val1= ( (prm[:Γβ]<prmrg[:Γβ][1])||(prm[:Γβ]>prmrg[:Γβ][2]) ? -Inf : 0.0 );
+	elseif prmvary[:Γβ]&&( prm[:flagt]==0.0 );
+		# Estimation run so use calibtrated prior
+		@error "Havent calibrated yet"
 	end
 
-	# Indicator for t₀<=tℓ
-	if (prm[:flagt]==1.0)&&(prmvary[Symbol(:t1)]||prmvary[Symbol(:tℓ1)])
-		@inbounds for i=1:nmax
-			ti = Symbol(:t,i);
-			tℓi = Symbol(:tℓ,i);
-			if prm[ti]>prm[tℓi]
-				return -Inf
-			end
-		end
+	if val1==-Inf
+		return val1
 	end
-
-	# Indicator for te<=tℓ
-	if prmvary[Symbol(:te1)]||prmvary[Symbol(:tℓ1)]
-		@inbounds for i=1:nmax
-			tei = Symbol(:te,i);
-			tℓi = Symbol(:tℓ,i);
-			if prm[tei]>prm[tℓi]
-				return -Inf
-			end
-		end
-	end
-	
-	# Conditional priors on Ax, L, A
-	val1 = 0.0;
-	#  Ax|μ,σ is N(Aₓμ,Aₓσ)
-	#@inbounds for i=1:nmax
-	#	Axi = Symbol(:Aₓ,i);
-	#	ti = Symbol(:t,i);
-	#	val1 += lognrm(prm[:Aₓμ],prm[:Aₓσ],prm[Axi]);
-	#end
-
-	# L|Aₓ,μ,σ is N(Lμ+Aₓ,Lσ)
-	#@inbounds for i=1:nmax
-	#	Li = Symbol(:L,i);
-	#	Axi = Symbol(:Aₓi);
-	#	val1 += lognrm(prm[:Lμ]+prm[Axi],prm[:Lσ],prm[Li]);
-	#end
-
-	# A|Γα,Γβ is Γ(α,β)
-	#@inbounds for i=1:nmax
-	#	Ai = Symbol(:A,i);
-	#	val1 += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
-	#end
 
 	# Likelihood
 	shedλ!(prm;λval=λval);
@@ -469,60 +394,7 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		  λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])),
 		  rng::MersenneTwister=MersenneTwister())
 	nbld::Int64 = floor(prm[:nbld]); nmax::Int64 = floor(prm[:nmax]);	
-	# prp density on n unif
-	if prmvary[:n1]
-		@inbounds for i=1:nbld
-			ni = Symbol(:n,i);
-			prm[ni] = prmrg[ni][1]+rand(rng)*(prmrg[ni][2]-prmrg[ni][1])
-		end
-	end
-
-	# prp density on ξ is uniform
-	if prmvary[:ξ]
-		prm[:ξ] = prmrg[:ξ][1]+rand(rng)*(prmrg[:ξ][2]-prmrg[:ξ][1]);
-	end
-
-	# prp density of tₑ's is unif
-	if prmvary[:te1]
-		@inbounds for i=1:nmax
-			tei = Symbol(:te,i);
-			tℓi = Symbol(:tℓ,i);
-			if !prmvary[:tℓ1]
-				temax = prm[tℓi] <= prmrg[tei][2] ? prm[tℓi] : prmrg[tei][2];
-			else
-				temax = prmrg[tei][2];
-			end
-			prm[tei] = prmrg[tei][1]+rand(rng)*(temax-prmrg[tei][1]);
-		end
-	end
-
-	# prp density on tℓ's conditioned on tₑ is unif from tₑ to its upper rg value
-	if prmvary[:tℓ1]
-		@inbounds for i=1:nmax
-			tei = Symbol(:te,i);
-			tℓi = Symbol(:tℓ,i);
-			tℓlow = prm[tei] >= prmrg[tℓi][1] ? prm[tei] : prmrg[tℓi][1]
-			prm[tℓi] = tℓlow + rand(rng)*(prmrg[tℓi][2]-tℓlow)
-		end
-	end
-
-	# prp density on t₀'s is unif potentially conditioned on (tₑ,tℓ)
-	if prmvary[:t1]
-		@inbounds for i=1:nmax
-			ti = Symbol(:t,i);
-			if prm0[:flagt]==-1.0
-				tei = Symbol(:te,i);
-				tupr = prm[tei]<=prmrg[ti][2] ? prm[tei] : prmrg[ti][2];
-			elseif prm0[:flagt]==1.0
-				tℓi = Symbol(:tℓ,i);
-				tupr = prm[tℓi]<=prmrg[ti][2] ? prm[tℓi] : prmrg[ti][2];
-			else
-				tupr = prmrg[ti][2];
-			end
-			prm[ti] = prmrg[ti][1]+rand(rng)*(tupr-prmrg[ti][1]);
-		end
-	end
-
+	
 	# prp density on Gamma hypers is random walk
 	if prmvary[:Γα]
 		ΔΓα = 0.02*(prmrg[:Γα][2]-prmrg[:Γα][1]);
@@ -540,6 +412,15 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 			prm[key] = prm0[key];
 		end
 		return
+	end
+
+	# prp density of amplitudes conditioned on hypers is Gamma
+	if prmvary[:A1]
+		Γdistr = Gamma(prm[:Γα],1/prm[:Γβ]);
+		@inbounds for i=1:nmax
+			Ai = Symbol(:A,i);
+			prm[Ai] = rand(rng,Γdistr);
+		end
 	end
 	
 	# prp density on Normal hypers is random walk
@@ -561,30 +442,53 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 		prm[:Lσ] = prm0[:Lσ]+ΔLσ*randn(rng);
 	end
 
-	# prp density of amplitudes conditioned on hypers is Gamma
-	if prmvary[:A1]
-		Γdistr = Gamma(prm[:Γα],1/prm[:Γβ]);
-		@inbounds for i=1:nmax
-			Ai = Symbol(:A,i);
-			prm[Ai] = rand(rng,Γdistr);
-		end
-	end
-
-	# prp density of pos of peak rel inf time is normal
+	# prp density of pos of peak increment rel inf time is normal
 	if prmvary[:Aₓ1]
 		@inbounds for i=1:nmax
-			ti = Symbol(:t,i);
 			Aₓi = Symbol(:Aₓ,i);
 			prm[Aₓi] = prm[:Aₓμ]+prm[:Aₓσ]*randn(rng);
 		end
 	end
 
-	# prp density of length of shedding conditioned on Aₓ is normal
+	# prp density of length of shedding increment rel inf time cond on Aₓ is normal
 	if prmvary[:L1]
 		@inbounds for i=1:nmax
 			Aₓi = Symbol(:Aₓ,i);
 			Li = Symbol(:L,i);
 			prm[Li] = prm[Aₓi]+prm[:Lμ]+prm[:Lσ]*randn(rng);
+		end
+	end	
+
+	# prp density on time of infection conditioned on building movement is uniform
+	if prmvary[:t1]
+		@inbounds for i=1:nmax
+			ti = Symbol(:t,i); Li = Symbol(:L,i);
+			if prm[:flagt]==-1.0
+				tei = Symbol(:te,i);
+				prm[ti] = prm[tei]-1-prm[Li] + rand(rng)*prm[Li];
+			elseif prm[:flagt]==1.0
+				tℓi = Symbol(:tℓ,i);
+				if prm[tℓi]<Inf
+					prm[ti] = prm[tℓi]-1-prm[Li] + rand(rng)*prm[Li];
+				else
+					prm[ti] = -prm[Li] + rand(rng)*(prm[:T]+prm[Li]);
+				end
+			elseif prm[:flagt]==0.0
+				prm[ti] = -prm[Li] + rand(rng)*(prm[:T]+prm[Li]);
+			end
+		end
+	end
+
+	# prp density on ξ unif
+	if prmvary[:ξ]
+		prm[:ξ] = prmrg[:ξ][1]+rand(rng)*(prmrg[:ξ][2]-prmrg[:ξ][1]);
+	end
+
+	# prp density on n unif
+	if prmvary[:n1]
+		@inbounds for i=1:nbld
+			ni = Symbol(:n,i);
+			prm[ni] = prmrg[ni][1]+rand(rng)*(prmrg[ni][2]-prmrg[ni][1])
 		end
 	end
 
@@ -594,58 +498,13 @@ end
 # logρ!
 """
 Evaluate the log unnormalized proposal density ρ(y|x) needed in mhratio
-for the subset of parameters being varied. Only the ρ(A|L) normalizing
-factor and Gamma's need to be tracked since the other factors are either
-prop to indicators and cancel in the ratio or are the random walk which
-is symmetric depending only on |x-y| which is same y|x or x|y.
+for the subset of parameters being varied. Only factors necessary for mh
+ratio are tracked
 """
 function logρ!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	       prmrg::Dict{Symbol,Vector{Float64}},prmvary::Dict{Symbol,Bool};
 	       λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax][1])))
 	val = 0.0;
-
-	nmax::Int64 = floor(prm[:nmax]);
-
-	if prmvary[:te1]&&prmvary[:tℓ1]
-		@inbounds for i=1:nmax
-			tei = Symbol(:te,i);
-			tℓi = Symbol(:tℓ,i);
-			tℓlow = prm[tei] >= prmrg[tℓi][1] ? prm[tei] : prmrg[tℓi][1];
-
-			val += -log(prmrg[tℓi][2]-tℓlow);
-		end
-	end
-
-	if (prm0[:flagt]!=0.0)&&(prmvary[:t1])
-		@inbounds for i=1:nmax
-			ti = Symbol(:t,i);
-			teℓi = prm0[:flagt]==-1.0 ? Symbol(:te,i) : Symbol(:tℓ,i);
-			tupr = prm[teℓi]<=prmrg[ti][2] ? prm[teℓi] : prmrg[ti][2];
-
-			val += -log(tupr - prmrg[ti][1])
-		end
-	end
-	
-	#if prmvary[:A1]
-	#	@inbounds for i=1:nmax
-	#		Ai = Symbol(:A,i);
-	#		val += logΓ(prm[:Γα],prm[:Γβ],prm[Ai]);
-	#	end
-	#end
-	
-	#  Ax|t₀ is N(Aₓμ+t₀,Aₓσ)
-	#@inbounds for i=1:nmax
-	#	Axi = Symbol(:Aₓ,i);
-	#	ti = Symbol(:t,i);
-	#	val1 += lognrm(prm[:Aₓμ],prm[:Aₓσ],prm[Axi]);
-	#end
-
-	# L|Aₓ is N(Lμ+Aₓ,Lσ)
-	#@inbounds for i=1:nmax
-	#	Li = Symbol(:L,i);
-	#	Axi = Symbol(:Aₓi);
-	#	val1 += lognrm(prm[:Lμ]+prm[Axi],prm[:Lσ],prm[Li]);
-	#end
 
 	return val
 end
@@ -670,27 +529,9 @@ function init!(prm::Dict{Symbol,Float64},
 			end
 		end
 
-		if prmvary[:tℓ1]
-			nmax = Int64(prm[:nmax]);
-			@inbounds for i=1:nmax
-				tℓi = Symbol(:tℓ,i);
-				tei = Symbol(:te,i);
-				vhgh = prmrg[tℓi][2]==Inf ? prm[tei]+10.0 : prmrg[tℓi][2];
-				prm[tℓi] = prm[tei] + rand(rng)*(vhgh-prm[tei])
-			end
-		end
+		prp!(prm,prm,prmrg,prmvary;λval=λval,rng=rng);
 
-		if (prm[:flagt]!=0.0)&&(prmvary[:t1])
-			@inbounds for i=1:nmax
-				ti = Symbol(:t,i);
-				teℓi = prm[:flagt]==-1.0 ? Symbol(:te,i) : Symbol(:tℓ,i);
-				tupr = prm[teℓi]<=prmrg[ti][2] ? prm[teℓi] : prmrg[ti][2];
-
-				prm[ti] = prmrg[ti][1]+rand(rng)*(tupr-prmrg[ti][1]);
-			end
-		end
-
-		data!(prm);
+		#data!(prm);
 		if logπ!(prm,prmrg,prmvary;λval=λval) != -Inf
 			flagfd = true;
 		end
