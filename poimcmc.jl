@@ -13,13 +13,13 @@ function data()
 	# cap number of infected people across all buildings
 	#  Fall 2020 Iso: 39 avg ppl from Oct 21-27 for dust collected Oct 28th
 	#  		  38 avg ppl from Oct 28th to Nov 3rd for dust collected Nov 4th
-	prm[:nmax] = 80.0; nmax::Int64 = prm[:nmax];
+	prm[:nmax] = 10.0; nmax::Int64 = prm[:nmax];
 
 	# number of buildings (several buildings used in calibration)
 	prm[:nbld] = 1.0; nbld::Int64 = prm[:nbld];
 
 	# number of infected people in each building
-	prm[:n1] = 80.0;
+	prm[:n1] = 10.0;
 	#prm[:n2] = 30.0;
 
 	# individual infection times
@@ -31,7 +31,7 @@ function data()
 	# individual times taking up residence in building
 	@inbounds for i=1:nmax
 		sym = Symbol("te"*string(i));
-		prm[sym] = 0.0;
+		prm[sym] = -Inf;
 	end
 
 	# individual times exiting residence in building
@@ -93,7 +93,7 @@ function data()
 	#                 bag 2 199.85
 	#                 bag 3 283.398
 	#                 bag 4 3226.79
-	prm[:Y1] = 172.724;
+	prm[:Y1] = 32.0;
 	#prm[:Y2] = 150.0;
 
 	# flag to say if any deterministic relationships exist
@@ -144,7 +144,7 @@ function mcmcrg()
 	
 	# max permitted number of infected people across all buildings
 	#  nmax should agree with what is in data and not be varied
-	prmrg[:nmax] = [80.0,80.0]; nmax::Int64 = prmrg[:nmax][2];
+	prmrg[:nmax] = [10.0,10.0]; nmax::Int64 = prmrg[:nmax][2];
 	prmvary[:nmax] = false;
 
 	# max number of buildings
@@ -188,7 +188,7 @@ function mcmcrg()
 	prmrg[:Γα] = [0.0,25.0];
 	prmvary[:Γα] = false;
 
-	prmrg[:Γβ] = [0.0,12.5];
+	prmrg[:Γβ] = [0.0,2.0];
 	prmvary[:Γβ] = true;
 
 	#  Normal-distribution hyperparameters for Aₓ increment
@@ -466,7 +466,11 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 			ti = Symbol(:t,i); Li = Symbol(:L,i);
 			if prm[:flagt]==-1.0
 				tei = Symbol(:te,i);
-				prm[ti] = prm[tei]-1-prm[Li] + rand(rng)*prm[Li];
+				if prm[tei]>-Inf
+					prm[ti] = prm[tei]-1-prm[Li] + rand(rng)*prm[Li];
+				else
+					prm[ti] = -prm[Li] + rand(rng)*(prm[:T]+prm[Li]);
+				end
 			elseif prm[:flagt]==1.0
 				tℓi = Symbol(:tℓ,i);
 				if prm[tℓi]<Inf
