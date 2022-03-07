@@ -282,7 +282,7 @@ included for multiple dispatch.
 function shedλ(A::Float64,L::Float64,t0::Float64,
 	       T::Float64,Ax::Float64,ξ::Float64,
 	       te::Float64,tℓ::Float64)
-    val = 1e-16;
+    val = 0.0;
     
     if te<tℓ
         # I₁=∫exp(-ξ*(T-s))*( exp(log(A+1)/Aₓ)*(s-t0) - 1 )ds
@@ -312,6 +312,7 @@ function shedλ(A::Float64,L::Float64,t0::Float64,
         val += I₁+I₂+I₃+I₄
     end
     
+    val = val <= 0.0 ? 1e-16 : val;
     return val
 end
 
