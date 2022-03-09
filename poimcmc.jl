@@ -13,13 +13,13 @@ function data()
 	# cap number of infected people across all buildings
 	#  Fall 2020 Iso: 39 avg ppl from Oct 21-27 for dust collected Oct 28th
 	#  		  38 avg ppl from Oct 28th to Nov 3rd for dust collected Nov 4th
-	prm[:nmax] = 10.0; nmax::Int64 = prm[:nmax];
+	prm[:nmax] = 40.0; nmax::Int64 = prm[:nmax];
 
 	# number of buildings (several buildings used in calibration)
 	prm[:nbld] = 1.0; nbld::Int64 = prm[:nbld];
 
 	# number of infected people in each building
-	prm[:n1] = 10.0;
+	prm[:n1] = 40.0;
 	#prm[:n2] = 30.0;
 
 	# individual infection times
@@ -31,13 +31,13 @@ function data()
 	# individual times taking up residence in building
 	@inbounds for i=1:nmax
 		sym = Symbol("te"*string(i));
-		prm[sym] = -Inf;
+		prm[sym] = 0.0;
 	end
 
 	# individual times exiting residence in building
 	@inbounds for i=1:nmax
 		sym = Symbol("tℓ"*string(i));
-		prm[sym] = Inf;
+		prm[sym] = 10.0;
 	end
 
 	# flag to say if running a calibration for an iso building,
@@ -54,7 +54,7 @@ function data()
 	#   mean: α/β
 	#   var:  α/β^2
 	prm[:Γα] = 1.0;
-	prm[:Γβ] = 0.00875;
+	prm[:Γβ] = 0.21;
 
 	#  Normal-hyperparameters for increment of pos peak rel inf time
 	prm[:Aₓμ] = 4.2;
@@ -93,7 +93,7 @@ function data()
 	#                 bag 2 199.85
 	#                 bag 3 283.398
 	#                 bag 4 3226.79
-	prm[:Y1] = 32.0;
+	prm[:Y1] = 172.724;
 	#prm[:Y2] = 150.0;
 
 	# flag to say if any deterministic relationships exist
@@ -144,7 +144,7 @@ function mcmcrg()
 	
 	# max permitted number of infected people across all buildings
 	#  nmax should agree with what is in data and not be varied
-	prmrg[:nmax] = [10.0,10.0]; nmax::Int64 = prmrg[:nmax][2];
+	prmrg[:nmax] = [40.0,40.0]; nmax::Int64 = prmrg[:nmax][2];
 	prmvary[:nmax] = false;
 
 	# max number of buildings
@@ -156,7 +156,7 @@ function mcmcrg()
 	#  bound by nmax enforced in prior
 	@inbounds for i=1:nbld
 		ni = Symbol(:n,i);
-		prmrg[ni] = [1.0,200.0];
+		prmrg[ni] = [1.0,40.0];
 		prmvary[ni] = false;
 	end
 
@@ -349,7 +349,8 @@ function logπ!(prm::Dict{Symbol,Float64},
 	
 	nbld::Int64 = floor(prm[:nbld]); nmax::Int64 = floor(prm[:nmax]);
 	# Prior contribution on hyper parameters α,β
-	if prmvary[:Γα]&&*( (prm[:flagt]==-1.0)||(prm[:flagt]==1.0) )
+	val1 = 0.0;
+	if prmvary[:Γα]&&( (prm[:flagt]==-1.0)||(prm[:flagt]==1.0) )
 		# Calibration run so uniform prior on Γ-hypers
 		val1= ( (prm[:Γα]<prmrg[:Γα][1])||(prm[:Γα]>prmrg[:Γα][2]) ? -Inf : 0.0 );
 	elseif prmvary[:Γα]&&( prm[:flagt]==0.0 );
@@ -357,12 +358,22 @@ function logπ!(prm::Dict{Symbol,Float64},
 		@error "Havent calibrated yet"
 	end
 
-	if prmvary[:Γβ]&&*( (prm[:flagt]==-1.0)||(prm[:flagt]==1.0) )
+	if prmvary[:Γβ]&&( (prm[:flagt]==-1.0)||(prm[:flagt]==1.0) )
 		# Calibration run so uniform prior on Γ-hypers
 		val1= ( (prm[:Γβ]<prmrg[:Γβ][1])||(prm[:Γβ]>prmrg[:Γβ][2]) ? -Inf : 0.0 );
 	elseif prmvary[:Γβ]&&( prm[:flagt]==0.0 );
 		# Estimation run so use calibtrated prior
 		@error "Havent calibrated yet"
+	end
+
+	if prmvary[:n1]
+		@inbounds for i=1:nbld
+			ni = Symbol(:n,i);
+			if (prm[ni]<prmrg[ni][1])||(prm[ni]>prmrg[ni][2])
+				val1 = -Inf;
+				break
+			end
+		end
 	end
 
 	if val1==-Inf
@@ -493,7 +504,9 @@ function prp!(prm0::Dict{Symbol,Float64},prm::Dict{Symbol,Float64},
 	if prmvary[:n1]
 		@inbounds for i=1:nbld
 			ni = Symbol(:n,i);
-			prm[ni] = prmrg[ni][1]+rand(rng)*(prmrg[ni][2]-prmrg[ni][1])
+			#prm[ni] = prmrg[ni][1]+rand(rng)*(prmrg[ni][2]-prmrg[ni][1])
+			Δn = 0.02*(prmrg[ni][2]-prmrg[ni][1]);
+			prm[ni] = prm0[ni]+Δn*randn(rng);	
 		end
 	end
 
