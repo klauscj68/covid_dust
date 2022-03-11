@@ -188,7 +188,7 @@ function mcmcrg()
 	prmrg[:Γα] = [0.0,25.0];
 	prmvary[:Γα] = false;
 
-	prmrg[:Γβ] = [0.0,2.0];
+	prmrg[:Γβ] = [0.0,1.0];
 	prmvary[:Γβ] = true;
 
 	#  Normal-distribution hyperparameters for Aₓ increment
