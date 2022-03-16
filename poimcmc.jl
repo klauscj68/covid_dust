@@ -13,13 +13,13 @@ function data()
 	# cap number of infected people across all buildings
 	#  Fall 2020 Iso: 39 avg ppl from Oct 21-27 for dust collected Oct 28th
 	#  		  38 avg ppl from Oct 28th to Nov 3rd for dust collected Nov 4th
-	prm[:nmax] = 40.0; nmax::Int64 = prm[:nmax];
+	prm[:nmax] = 10.0; nmax::Int64 = prm[:nmax];
 
 	# number of buildings (several buildings used in calibration)
 	prm[:nbld] = 1.0; nbld::Int64 = prm[:nbld];
 
 	# number of infected people in each building
-	prm[:n1] = 40.0;
+	prm[:n1] = 10.0;
 	#prm[:n2] = 30.0;
 
 	# individual infection times
@@ -54,7 +54,7 @@ function data()
 	#   mean: α/β
 	#   var:  α/β^2
 	prm[:Γα] = 1.0;
-	prm[:Γβ] = 0.21;
+	prm[:Γβ] = 0.15;
 
 	#  Normal-hyperparameters for increment of pos peak rel inf time
 	prm[:Aₓμ] = 4.2;
@@ -93,7 +93,7 @@ function data()
 	#                 bag 2 199.85
 	#                 bag 3 283.398
 	#                 bag 4 3226.79
-	prm[:Y1] = 172.724;
+	prm[:Y1] = 58.0;
 	#prm[:Y2] = 150.0;
 
 	# flag to say if any deterministic relationships exist
@@ -103,6 +103,10 @@ function data()
 	# "0.0"=>No deterministic relationships
 	# "1.0"=>Some deterministic relationships
 	prm[:flagdet] = 0.0;
+
+	# flag to say if using a square shedding instead of full log-triangle
+	# shedding curve
+	prm[:flagshedsq] = 1.0;
 	
 	vkeys = [k for k in keys(prm)];
 	return prm,vkeys
@@ -144,7 +148,7 @@ function mcmcrg()
 	
 	# max permitted number of infected people across all buildings
 	#  nmax should agree with what is in data and not be varied
-	prmrg[:nmax] = [40.0,40.0]; nmax::Int64 = prmrg[:nmax][2];
+	prmrg[:nmax] = [10.0,10.0]; nmax::Int64 = prmrg[:nmax][2];
 	prmvary[:nmax] = false;
 
 	# max number of buildings
@@ -156,7 +160,7 @@ function mcmcrg()
 	#  bound by nmax enforced in prior
 	@inbounds for i=1:nbld
 		ni = Symbol(:n,i);
-		prmrg[ni] = [1.0,40.0];
+		prmrg[ni] = [1.0,10.0];
 		prmvary[ni] = false;
 	end
 
@@ -188,7 +192,7 @@ function mcmcrg()
 	prmrg[:Γα] = [0.0,25.0];
 	prmvary[:Γα] = false;
 
-	prmrg[:Γβ] = [0.0,1.0];
+	prmrg[:Γβ] = [0.0,3.0];
 	prmvary[:Γβ] = true;
 
 	#  Normal-distribution hyperparameters for Aₓ increment
@@ -316,15 +320,51 @@ function shedλ(A::Float64,L::Float64,t0::Float64,
     return val
 end
 
+function shedλsq(A::Float64,L::Float64,t0::Float64,
+	         T::Float64,Ax::Float64,ξ::Float64,
+	         te::Float64,tℓ::Float64)
+	val = 0.0;
+	if te<tℓ
+		a = maximum([t0,0.0,te]); b = minimum([t0+L,T,tℓ]);
+		if a<b
+			val += A/ξ*exp(-ξ*T)*( exp(ξ*b)-exp(ξ*a) );
+		end
+	elseif tℓ<te
+		a1 = maximum([t0,0.0]); b1 = minimum([t0+L,T,tℓ]);
+		a2 = maximum([t0,0.0,te]); b2 = minimum([t0+L,T]);
+		if a1<b1
+			val += exp(ξ*b1)-exp(ξ*a1)
+		end
+		if a2<b2
+			val += exp(ξ*b2)-exp(ξ*a2);
+		end
+		val *= A/ξ*exp(-ξ*T);
+	end
+
+	val = val<=0.0 ? 1e-16 : val
+	return val
+end
+
 function shedλ!(prm::Dict{Symbol,Float64};
 		λval::Vector{Float64}=Vector{Float64}(undef,Int64(prm[:nmax])));
-	@inbounds for i=1:Int64(prm[:nmax])
-		λval[i] = shedλ(prm[Symbol(:A,i)],prm[Symbol(:L,i)],
-				prm[Symbol(:t,i)],prm[:T],
-				prm[Symbol(:Aₓ,i)],
-				prm[:ξ],
-				prm[Symbol(:te,i)],
-				prm[Symbol(:tℓ,i)]);
+	if prm[:flagshedsq]==0.0
+		@inbounds for i=1:Int64(prm[:nmax])
+			λval[i] = shedλ(prm[Symbol(:A,i)],prm[Symbol(:L,i)],
+					prm[Symbol(:t,i)],prm[:T],
+					prm[Symbol(:Aₓ,i)],
+					prm[:ξ],
+					prm[Symbol(:te,i)],
+					prm[Symbol(:tℓ,i)]);
+			end
+	elseif prm[:flagshedsq]==1.0
+		@inbounds for i=1:Int64(prm[:nmax])
+			λval[i] = shedλsq(prm[Symbol(:A,i)],prm[Symbol(:L,i)],
+					  prm[Symbol(:t,i)],prm[:T],
+					  prm[Symbol(:Aₓ,i)],
+					  prm[:ξ],
+					  prm[Symbol(:te,i)],
+					  prm[Symbol(:tℓ,i)]);
+			end
 	end
 
 end
@@ -354,7 +394,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 		# Calibration run so uniform prior on Γ-hypers
 		val1= ( (prm[:Γα]<prmrg[:Γα][1])||(prm[:Γα]>prmrg[:Γα][2]) ? -Inf : 0.0 );
 	elseif prmvary[:Γα]&&( prm[:flagt]==0.0 );
-		# Estimation run so use calibtrated prior
+		# Estimation run so use calibrated prior
 		@error "Havent calibrated yet"
 	end
 
@@ -362,7 +402,7 @@ function logπ!(prm::Dict{Symbol,Float64},
 		# Calibration run so uniform prior on Γ-hypers
 		val1= ( (prm[:Γβ]<prmrg[:Γβ][1])||(prm[:Γβ]>prmrg[:Γβ][2]) ? -Inf : 0.0 );
 	elseif prmvary[:Γβ]&&( prm[:flagt]==0.0 );
-		# Estimation run so use calibtrated prior
+		# Estimation run so use calibrated prior
 		@error "Havent calibrated yet"
 	end
 
