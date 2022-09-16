@@ -16,7 +16,7 @@ to be installed.
 The julia files poimcmc.jl specifies most of the options, including
 fixed parameter values, priors, number of samples, and how the
 error is computed. Fixed parameter values are taken from data() in
-parameters.jl. Priors are specified in mcmcrg() and logpi!() in poimcmc.jl.
+poimcmc.jl. Priors are specified in mcmcrg() and logpi!() in poimcmc.jl.
 mcmcrg() also specifies which parameters to vary.
 
 To generate mcmc samples, one manually calls mcmcrun() with 
